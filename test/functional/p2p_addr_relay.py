@@ -174,11 +174,13 @@ class AddrTest(BitcoinTestFramework):
         # large GETADDR responses from being relayed, it now typically affects the self-announcement
         # of the outbound peer which is often sent before the GETADDR response.
         assert_equal(inbound_peer.num_ipv4_received, 0)
+        inbound_peer.send_and_ping(msg_getaddr())
+        initial_addrs_received = inbound_peer.num_ipv4_received
 
         self.log.info('Check that subsequent addr messages sent from an outbound peer are relayed')
         msg2 = self.setup_addr_msg(2)
         self.send_addr_msg(full_outbound_peer, msg2, [inbound_peer])
-        assert_equal(inbound_peer.num_ipv4_received, 2)
+        assert_equal(inbound_peer.num_ipv4_received - initial_addrs_received, 2)
 
         self.log.info('Check address relay to outbound peers')
         block_relay_peer = self.nodes[0].add_outbound_p2p_connection(AddrReceiver(), p2p_idx=1, connection_type="block-relay-only")
