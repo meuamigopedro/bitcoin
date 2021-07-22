@@ -67,7 +67,7 @@ public:
         READWRITE(obj.source, obj.nLastSuccess, obj.nAttempts);
     }
 
-    CAddrInfo(const CAddress &addrIn, const CNetAddr &addrSource) : CAddress(addrIn), source(addrSource)
+    CAddrInfo(const CAddress& addrIn, const CNetAddr& addrSource, const int position = -1) : CAddress(addrIn), source(addrSource), nRandomPos(position)
     {
     }
 

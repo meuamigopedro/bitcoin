@@ -129,9 +129,8 @@ CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, in
     AssertLockHeld(cs);
 
     int nId = nIdCount++;
-    mapInfo[nId] = CAddrInfo(addr, addrSource);
+    mapInfo[nId] = CAddrInfo(addr, addrSource, vRandom.size());
     mapAddr[addr] = nId;
-    mapInfo[nId].nRandomPos = vRandom.size();
     vRandom.push_back(nId);
     pnId = nId;
     return &mapInfo[nId];
