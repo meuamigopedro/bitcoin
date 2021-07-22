@@ -124,7 +124,7 @@ CAddrInfo* CAddrMan::Find(const CNetAddr& addr, int* pnId)
     return nullptr;
 }
 
-CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId)
+CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, int& pnId)
 {
     AssertLockHeld(cs);
 
@@ -133,8 +133,7 @@ CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, in
     mapAddr[addr] = nId;
     mapInfo[nId].nRandomPos = vRandom.size();
     vRandom.push_back(nId);
-    if (pnId)
-        *pnId = nId;
+    pnId = nId;
     return &mapInfo[nId];
 }
 
@@ -356,7 +355,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
         if (nFactor > 1 && (insecure_rand.randrange(nFactor) != 0))
             return false;
     } else {
-        pinfo = Create(addr, source, &nId);
+        pinfo = Create(addr, source, nId);
         pinfo->nTime = std::max((int64_t)0, (int64_t)pinfo->nTime - nTimePenalty);
         nNew++;
         fNew = true;
