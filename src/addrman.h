@@ -577,7 +577,7 @@ public:
     }
 
     /**
-     * Choose an address to connect to.
+     * Select a random address from our addrman.
      */
     CAddrInfo Select(bool newOnly = false)
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
@@ -689,11 +689,25 @@ private:
     //! Holds addrs inserted into tried table that collide with existing entries. Test-before-evict discipline used to resolve these collisions.
     std::set<int> m_tried_collisions;
 
-    //! Find an entry.
+    /**
+     * Use mapAddr and mapInfo to attempt retrieving a CAddrInfo record.
+     *
+     * @param[in]      addr  The object to look up.
+     * @param[in,out]  pnId  If present, sets to the corresponding node id.
+     * @return               Returns the record if it was found on both mapAddr
+     *                       and mapInfo. Otherwise, returns nullptr.
+     */
     CAddrInfo* Find(const CNetAddr& addr, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    //! find an entry, creating it if necessary.
-    //! nTime and nServices of the found node are updated, if necessary.
+    /**
+     * Create a new address record and add it to our internal data structures.
+     * Assigns a node id and updates mapInfo, mapAddr, and vRandom.
+     *
+     * @param[in]      addr        The new address to add to internal data structures
+     * @param[in]      addrSource  The source that sent us the addr information
+     * @param[in,out]  pnId        The node id assigned to this address record
+     * @return                     The newly created CAddrInfo record
+     */
     CAddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int& pnId) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Swap two elements in vRandom.
@@ -717,7 +731,15 @@ private:
     //! Mark an entry as attempted to connect.
     void Attempt_(const CService &addr, bool fCountFailure, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    //! Select an address to connect to, if newOnly is set to true, only the new table is selected from.
+    /**
+     *  Select a random address from our addrman.
+     *
+     *  @param[in]  newOnly  If true, address will be selected from new table.
+     *                       If false, the address might be selected from the
+     *                       tried table.
+     *  @return              A CAddrInfo record. If we don't have any addresses
+     *                       in our addrman, it will be an empty record.
+     */
     CAddrInfo Select_(bool newOnly) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! See if any to-be-evicted tried table entries have been tested and if so resolve the collisions.

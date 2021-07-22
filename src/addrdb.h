@@ -73,6 +73,8 @@ public:
     CAddrDB();
     bool Write(const CAddrMan& addr);
     bool Read(CAddrMan& addr);
+
+    /** Test only */
     static bool Read(CAddrMan& addr, CDataStream& ssPeers);
 };
 
