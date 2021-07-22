@@ -348,9 +348,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             return false;
 
         // stochastic test: previous nRefCount == N: 2^N times harder to increase it
-        int nFactor = 1;
-        for (int n = 0; n < pinfo->nRefCount; n++)
-            nFactor *= 2;
+        int nFactor = 1 << pinfo->nRefCount;
         if (nFactor > 1 && (insecure_rand.randrange(nFactor) != 0))
             return false;
     } else {
