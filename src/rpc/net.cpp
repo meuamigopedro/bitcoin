@@ -947,9 +947,10 @@ static RPCHelpMan addpeeraddress()
     if (LookupHost(addr_string, net_addr, false)) {
         CAddress address{{net_addr, port}, ServiceFlags{NODE_NETWORK | NODE_WITNESS}};
         address.nTime = GetAdjustedTime();
+        std::vector<CAddress> address_vector{address};
         // The source address is set equal to the address. This is equivalent to the peer
         // announcing itself.
-        if (node.addrman->Add(address, address)) success = true;
+        if (node.addrman->Add(address_vector, address)) success = true;
     }
 
     obj.pushKV("success", success);
