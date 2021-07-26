@@ -227,6 +227,9 @@ struct Peer {
     /** Probabilistic filter of addresses that this peer already knows.
      *  Used to avoid relaying addresses to this peer more than once. */
     std::unique_ptr<CRollingBloomFilter> m_addr_known;
+    /** Whether we are participating in address relay with this connection.
+     *  Must correlate with whether m_addr_known has been initialized. */
+    std::atomic_bool addr_relay_enabled{false};
     /** Whether a getaddr request to this peer is outstanding. */
     bool m_getaddr_sent{false};
     /** Guards address sending timers. */
@@ -741,7 +744,7 @@ static CNodeState *State(NodeId pnode) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
 
 static bool RelayAddrsWithPeer(const Peer& peer)
 {
-    return peer.m_addr_known != nullptr;
+    return peer.addr_relay_enabled;
 }
 
 /**
@@ -4443,6 +4446,7 @@ bool PeerManagerImpl::SetupAddressRelay(CNode& node) const
         // First addr message we have received from the peer, initialize
         // m_addr_known
         peer->m_addr_known = std::make_unique<CRollingBloomFilter>(5000, 0.001);
+        peer->addr_relay_enabled = true;
     }
 
     return true;
