@@ -832,14 +832,17 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
 {
     AssertLockHeld(cs_main);
 
+    LogPrintf("ABCD MaybeSetPeerAsAnnouncingHeaderAndIDs...\n");
+
     // Never request high-bandwidth mode from peers if we're blocks-only. Our
     // mempool will not contain the transactions necessary to reconstruct the
     // compact block.
-    if (m_ignore_incoming_txs) return;
+    //if (m_ignore_incoming_txs) return;
 
     CNodeState* nodestate = State(nodeid);
     if (!nodestate || !nodestate->fSupportsDesiredCmpctVersion) {
         // Never ask from peers who can't provide witnesses.
+        LogPrintf("ABCD 1\n");
         return;
     }
     if (nodestate->fProvidesHeaderAndIDs) {
@@ -848,11 +851,13 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
             if (*it == nodeid) {
                 lNodesAnnouncingHeaderAndIDs.erase(it);
                 lNodesAnnouncingHeaderAndIDs.push_back(nodeid);
+                LogPrintf("ABCD 2\n");
                 return;
             }
             CNodeState *state = State(*it);
             if (state != nullptr && !state->m_is_inbound) ++num_outbound_hb_peers;
         }
+        LogPrintf("ABCD 3\n");
         if (nodestate->m_is_inbound) {
             // If we're adding an inbound HB peer, make sure we're not removing
             // our last outbound HB peer in the process.
@@ -865,8 +870,10 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
                 }
             }
         }
+        LogPrintf("ABCD 4\n");
         m_connman.ForNode(nodeid, [this](CNode* pfrom) EXCLUSIVE_LOCKS_REQUIRED(::cs_main) {
             AssertLockHeld(::cs_main);
+            LogPrintf("ABCD 5\n");
             uint64_t nCMPCTBLOCKVersion = (pfrom->GetLocalServices() & NODE_WITNESS) ? 2 : 1;
             if (lNodesAnnouncingHeaderAndIDs.size() >= 3) {
                 // As per BIP152, we only get 3 of our peers to announce
@@ -879,6 +886,7 @@ void PeerManagerImpl::MaybeSetPeerAsAnnouncingHeaderAndIDs(NodeId nodeid)
                 });
                 lNodesAnnouncingHeaderAndIDs.pop_front();
             }
+            LogPrintf("ABCD 6\n");
             m_connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetCommonVersion()).Make(NetMsgType::SENDCMPCT, /*fAnnounceUsingCMPCTBLOCK=*/true, nCMPCTBLOCKVersion));
             // save BIP152 bandwidth state: we select peer to be high-bandwidth
             pfrom->m_bip152_highbandwidth_to = true;
