@@ -93,6 +93,17 @@ public:
             insecure_rand = FastRandomContext(true);
         }
     }
+
+    bool Add(const CAddress& addr, const CNetAddr& source, int64_t nTimePenalty = 0)
+    {
+        std::vector<CAddress> addresses{addr};
+        return CAddrMan::Add(addresses, source, nTimePenalty);
+    }
+
+    bool Add(const std::vector<CAddress>& addresses, const CNetAddr& source, int64_t nTimePenalty = 0)
+    {
+        return CAddrMan::Add(addresses, source, nTimePenalty);
+    }
 };
 
 static CNetAddr ResolveIP(const std::string& ip)

@@ -511,7 +511,7 @@ public:
     }
 
     //! Add addresses to addrman's new table.
-    bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
+    bool Add(const std::vector<CAddress>& vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
