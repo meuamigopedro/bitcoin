@@ -1288,7 +1288,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
             return false;
         }
         const uint256 asmap_version = SerializeHash(asmap);
-        node.connman->SetAsmap(std::move(asmap));
+        node.addrman->m_asmap = std::move(asmap);
         LogPrintf("Using asmap version %s for IP bucketing\n", asmap_version.ToString());
     } else {
         LogPrintf("Using /16 prefix for IP bucketing\n");
