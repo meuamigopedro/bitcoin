@@ -2593,14 +2593,6 @@ bool CConnman::Start(CScheduler& scheduler, const Options& connOptions)
     // Initiate manual connections
     threadOpenAddedConnections = std::thread(&util::TraceThread, "addcon", [this] { ThreadOpenAddedConnections(); });
 
-    if (connOptions.m_use_addrman_outgoing && !connOptions.m_specified_outgoing.empty()) {
-        if (clientInterface) {
-            clientInterface->ThreadSafeMessageBox(
-                _("Cannot provide specific connections and have addrman find outgoing connections at the same."),
-                "", CClientUIInterface::MSG_ERROR);
-        }
-        return false;
-    }
     if (connOptions.m_use_addrman_outgoing || !connOptions.m_specified_outgoing.empty()) {
         threadOpenConnections = std::thread(
             &util::TraceThread, "opencon",
