@@ -83,5 +83,18 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         assert_equal(p2p_conn_node1.message_count['sendcmpct'], 3)
         assert_equal(p2p_conn_node1.last_message['sendcmpct'].announce, True)
 
+        self.log.info("Part 2: Test that blocksonly nodes send getdata(BLOCK) "
+                      "instead of getdata(CMPCT) in low bandwidth mode.")
+
+        block1 = self.build_block_on_tip()
+
+        p2p_conn_node0.send_message(msg_headers(headers=[CBlockHeader(block1)]))
+        p2p_conn_node0.sync_send_with_ping()
+        assert_equal(p2p_conn_node0.last_message['getdata'].inv, [CInv(MSG_BLOCK | MSG_WITNESS_FLAG, block1.sha256)])
+
+        p2p_conn_node1.send_message(msg_headers(headers=[CBlockHeader(block1)]))
+        p2p_conn_node1.sync_send_with_ping()
+        assert_equal(p2p_conn_node1.last_message['getdata'].inv, [CInv(MSG_CMPCT_BLOCK, block1.sha256)])
+
 if __name__ == '__main__':
     P2PCompactBlocksBlocksOnly().main()
