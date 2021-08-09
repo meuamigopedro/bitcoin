@@ -27,8 +27,8 @@ from test_framework.messages import (
 class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
-        self.num_nodes = 3
-        self.extra_args = [["-blocksonly"], [], []]
+        self.num_nodes = 4
+        self.extra_args = [["-blocksonly"], [], [], []]
 
     def setup_network(self):
         self.setup_nodes()
@@ -44,6 +44,13 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
     def run_test(self):
         self.connect_nodes(0, 2)
         self.connect_nodes(1, 2)
+        self.connect_nodes(2, 3)
+
+        # Nodes:
+        # 0 -> blocksonly
+        # 1 -> high bw
+        # 2 -> miner
+        # 3 -> low bw
 
         # Generate some blocks so all nodes are out of IBD.
         self.nodes[2].generate(10)
@@ -51,22 +58,30 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
 
         self.disconnect_nodes(0, 2)
         self.disconnect_nodes(1, 2)
+        self.disconnect_nodes(2, 3)
 
         p2p_conn_blocksonly = self.nodes[0].add_p2p_connection(P2PInterface())
         p2p_conn_high_bw = self.nodes[1].add_p2p_connection(P2PInterface())
+        p2p_conn_low_bw = self.nodes[3].add_p2p_connection(P2PInterface())
+
         assert_equal(p2p_conn_blocksonly.message_count['sendcmpct'], 2)
         assert_equal(p2p_conn_high_bw.message_count['sendcmpct'], 2)
+        assert_equal(p2p_conn_low_bw.message_count['sendcmpct'], 2)
+
         p2p_conn_blocksonly.send_and_ping(msg_sendcmpct(announce=False, version=2))
         p2p_conn_high_bw.send_and_ping(msg_sendcmpct(announce=False, version=2))
+        p2p_conn_low_bw.send_and_ping(msg_sendcmpct(announce=False, version=2))
 
         # Topology:
-        #   p2p_conn_blocksonly ---> node0         node1 <--- p2p_conn_high_bw
-        #                              node2
+        #   p2p_conn_blocksonly ---> node0
+        #   p2p_conn_high_bw    ---> node1
+        #   p2p_conn_low_bw     ---> node3
+        #   node2 (no connections)
         #
-        # node2 produces blocks which get passed to node0 and node1
+        # node2 produces blocks which get passed to the rest of the nodes
         # through the respective p2p connections.
 
-        self.log.info("Part 1: Test that blocksonly nodes do not request high bandwidth mode.")
+        self.log.info("Test that blocksonly nodes do not request high bandwidth mode.")
 
         block0 = self.build_block_on_tip()
 
@@ -84,7 +99,10 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         assert_equal(p2p_conn_high_bw.message_count['sendcmpct'], 3)
         assert_equal(p2p_conn_high_bw.last_message['sendcmpct'].announce, True)
 
-        self.log.info("Part 2: Test that blocksonly nodes send getdata(BLOCK) "
+        # Don't send a block from the p2p_conn_low_bw so the bitcoind node
+        # doesn't select it for high bw relay
+
+        self.log.info("Test that blocksonly nodes send getdata(BLOCK) "
                       "instead of getdata(CMPCT) in low bandwidth mode.")
 
         block1 = self.build_block_on_tip()
@@ -92,6 +110,10 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         p2p_conn_blocksonly.send_message(msg_headers(headers=[CBlockHeader(block1)]))
         p2p_conn_blocksonly.sync_send_with_ping()
         assert_equal(p2p_conn_blocksonly.last_message['getdata'].inv, [CInv(MSG_BLOCK | MSG_WITNESS_FLAG, block1.sha256)])
+
+        p2p_conn_low_bw.send_and_ping(msg_headers(headers=[CBlockHeader(block0)]))
+        p2p_conn_low_bw.sync_with_ping()
+        assert_equal(p2p_conn_low_bw.last_message['getdata'].inv, [CInv(MSG_CMPCT_BLOCK, block0.sha256)])
 
         p2p_conn_high_bw.send_message(msg_headers(headers=[CBlockHeader(block1)]))
         p2p_conn_high_bw.sync_send_with_ping()
