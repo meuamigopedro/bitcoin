@@ -2,7 +2,7 @@
 # Copyright (c) 2019-2020 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test p2p blocksonly mode & compact block relay"""
+""" Test that a node in blocksonly mode does not request compact blocks. """
 
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.p2p import P2PInterface
@@ -22,6 +22,7 @@ from test_framework.messages import (
     msg_sendcmpct,
     msg_headers,
 )
+
 
 class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
     def set_test_params(self):
@@ -51,15 +52,15 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         self.disconnect_nodes(0, 2)
         self.disconnect_nodes(1, 2)
 
-        p2p_conn_node0 = self.nodes[0].add_p2p_connection(P2PInterface())
-        p2p_conn_node1 = self.nodes[1].add_p2p_connection(P2PInterface())
-        assert_equal(p2p_conn_node0.message_count['sendcmpct'], 2)
-        assert_equal(p2p_conn_node1.message_count['sendcmpct'], 2)
-        p2p_conn_node0.send_and_ping(msg_sendcmpct(announce=False, version=2))
-        p2p_conn_node1.send_and_ping(msg_sendcmpct(announce=False, version=2))
+        p2p_conn_blocksonly = self.nodes[0].add_p2p_connection(P2PInterface())
+        p2p_conn_high_bw = self.nodes[1].add_p2p_connection(P2PInterface())
+        assert_equal(p2p_conn_blocksonly.message_count['sendcmpct'], 2)
+        assert_equal(p2p_conn_high_bw.message_count['sendcmpct'], 2)
+        p2p_conn_blocksonly.send_and_ping(msg_sendcmpct(announce=False, version=2))
+        p2p_conn_high_bw.send_and_ping(msg_sendcmpct(announce=False, version=2))
 
         # Topology:
-        #   p2p_conn_node0 ---> node0         node1 <--- p2p_conn_node1
+        #   p2p_conn_blocksonly ---> node0         node1 <--- p2p_conn_high_bw
         #                              node2
         #
         # node2 produces blocks which get passed to node0 and node1
@@ -71,30 +72,31 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
 
         # A blocksonly node should not request high bandwidth mode upon
         # receiving a new valid block at the tip.
-        p2p_conn_node0.send_and_ping(msg_block(block0))
+        p2p_conn_blocksonly.send_and_ping(msg_block(block0))
         assert_equal(int(self.nodes[0].getbestblockhash(), 16), block0.sha256)
-        assert_equal(p2p_conn_node0.message_count['sendcmpct'], 2)
-        assert_equal(p2p_conn_node0.last_message['sendcmpct'].announce, False)
+        assert_equal(p2p_conn_blocksonly.message_count['sendcmpct'], 2)
+        assert_equal(p2p_conn_blocksonly.last_message['sendcmpct'].announce, False)
 
         # A normal node participating in transaction relay should request high
         # bandwidth mode upon receiving a new valid block at the tip.
-        p2p_conn_node1.send_and_ping(msg_block(block0))
+        p2p_conn_high_bw.send_and_ping(msg_block(block0))
         assert_equal(int(self.nodes[1].getbestblockhash(), 16), block0.sha256)
-        assert_equal(p2p_conn_node1.message_count['sendcmpct'], 3)
-        assert_equal(p2p_conn_node1.last_message['sendcmpct'].announce, True)
+        assert_equal(p2p_conn_high_bw.message_count['sendcmpct'], 3)
+        assert_equal(p2p_conn_high_bw.last_message['sendcmpct'].announce, True)
 
         self.log.info("Part 2: Test that blocksonly nodes send getdata(BLOCK) "
                       "instead of getdata(CMPCT) in low bandwidth mode.")
 
         block1 = self.build_block_on_tip()
 
-        p2p_conn_node0.send_message(msg_headers(headers=[CBlockHeader(block1)]))
-        p2p_conn_node0.sync_send_with_ping()
-        assert_equal(p2p_conn_node0.last_message['getdata'].inv, [CInv(MSG_BLOCK | MSG_WITNESS_FLAG, block1.sha256)])
+        p2p_conn_blocksonly.send_message(msg_headers(headers=[CBlockHeader(block1)]))
+        p2p_conn_blocksonly.sync_send_with_ping()
+        assert_equal(p2p_conn_blocksonly.last_message['getdata'].inv, [CInv(MSG_BLOCK | MSG_WITNESS_FLAG, block1.sha256)])
 
-        p2p_conn_node1.send_message(msg_headers(headers=[CBlockHeader(block1)]))
-        p2p_conn_node1.sync_send_with_ping()
-        assert_equal(p2p_conn_node1.last_message['getdata'].inv, [CInv(MSG_CMPCT_BLOCK, block1.sha256)])
+        p2p_conn_high_bw.send_message(msg_headers(headers=[CBlockHeader(block1)]))
+        p2p_conn_high_bw.sync_send_with_ping()
+        assert_equal(p2p_conn_high_bw.last_message['getdata'].inv, [CInv(MSG_CMPCT_BLOCK, block1.sha256)])
+
 
 if __name__ == '__main__':
     P2PCompactBlocksBlocksOnly().main()
