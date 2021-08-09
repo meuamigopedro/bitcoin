@@ -809,8 +809,9 @@ public:
     ~CConnman();
     bool Start(CScheduler& scheduler, const Options& options);
 
-    void StopThreads();
+    // Test only: fuzz/process_messages.cpp
     void StopNodes();
+
     void Stop()
     {
         StopThreads();
@@ -973,6 +974,8 @@ private:
     void ThreadMessageHandler();
     void ThreadI2PAcceptIncoming();
     void AcceptConnection(const ListenSocket& hListenSocket);
+
+    void StopThreads();
 
     /**
      * Create a `CNode` object from a socket that has just been accepted and add the node to
