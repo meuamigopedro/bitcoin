@@ -38,7 +38,7 @@ class PeerManager : public CValidationInterface, public NetEventsInterface
 {
 public:
     static std::unique_ptr<PeerManager> make(const CChainParams& chainparams, CConnman& connman, CAddrMan& addrman,
-                                             BanMan* banman, ChainstateManager& chainman,
+                                             BanMan& banman, ChainstateManager& chainman,
                                              CTxMemPool& pool, bool ignore_incoming_txs);
     virtual ~PeerManager() { }
 
