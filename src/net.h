@@ -758,7 +758,6 @@ public:
         int nMaxFeeler = 0;
         CClientUIInterface* uiInterface = nullptr;
         NetEventsInterface* m_msgproc = nullptr;
-        BanMan* m_banman = nullptr;
         unsigned int nSendBufferMaxSize = 0;
         unsigned int nReceiveFloodSize = 0;
         uint64_t nMaxOutboundLimit = 0;
@@ -788,7 +787,6 @@ public:
         nMaxFeeler = connOptions.nMaxFeeler;
         m_max_outbound = m_max_outbound_full_relay + m_max_outbound_block_relay + nMaxFeeler;
         clientInterface = connOptions.uiInterface;
-        m_banman = connOptions.m_banman;
         m_msgproc = connOptions.m_msgproc;
         nSendBufferMaxSize = connOptions.nSendBufferMaxSize;
         nReceiveFloodSize = connOptions.nReceiveFloodSize;
@@ -805,7 +803,7 @@ public:
         m_onion_binds = connOptions.onion_binds;
     }
 
-    CConnman(uint64_t seed0, uint64_t seed1, CAddrMan& addrman, bool network_active = true);
+    CConnman(uint64_t seed0, uint64_t seed1, CAddrMan& addrman, BanMan& banman, bool network_active = true);
     ~CConnman();
     bool Start(CScheduler& scheduler, const Options& options);
 
@@ -1129,8 +1127,7 @@ private:
     bool m_use_addrman_outgoing;
     CClientUIInterface* clientInterface;
     NetEventsInterface* m_msgproc;
-    /** Pointer to this node's banman. May be nullptr - check existence before dereferencing. */
-    BanMan* m_banman;
+    BanMan& m_banman;
 
     /**
      * Addresses that were saved during the previous clean shutdown. We'll

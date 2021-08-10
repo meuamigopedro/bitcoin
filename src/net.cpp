@@ -1158,7 +1158,7 @@ void CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,
     SetSocketNoDelay(hSocket);
 
     // Don't accept connections from banned peers.
-    bool banned = m_banman && m_banman->IsBanned(addr);
+    bool banned = m_banman.IsBanned(addr);
     if (!NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::NoBan) && banned)
     {
         LogPrint(BCLog::NET, "connection from %s dropped (banned)\n", addr.ToString());
@@ -1167,7 +1167,7 @@ void CConnman::CreateNodeFromAcceptedSocket(SOCKET hSocket,
     }
 
     // Only accept connections from discouraged peers if our inbound slots aren't (almost) full.
-    bool discouraged = m_banman && m_banman->IsDiscouraged(addr);
+    bool discouraged = m_banman.IsDiscouraged(addr);
     if (!NetPermissions::HasFlag(permissionFlags, NetPermissionFlags::NoBan) && nInbound + 1 >= nMaxInbound && discouraged)
     {
         LogPrint(BCLog::NET, "connection from %s dropped (discouraged)\n", addr.ToString());
@@ -2211,7 +2211,7 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
         return;
     }
     if (!pszDest) {
-        bool banned_or_discouraged = m_banman && (m_banman->IsDiscouraged(addrConnect) || m_banman->IsBanned(addrConnect));
+        bool banned_or_discouraged = m_banman.IsDiscouraged(addrConnect) || m_banman.IsBanned(addrConnect);
         if (IsLocal(addrConnect) || banned_or_discouraged || AlreadyConnectedToAddress(addrConnect)) {
             return;
         }
@@ -2451,8 +2451,8 @@ void CConnman::SetNetworkActive(bool active)
     uiInterface.NotifyNetworkActiveChanged(fNetworkActive);
 }
 
-CConnman::CConnman(uint64_t nSeed0In, uint64_t nSeed1In, CAddrMan& addrman_in, bool network_active)
-    : addrman(addrman_in), nSeed0(nSeed0In), nSeed1(nSeed1In)
+CConnman::CConnman(uint64_t nSeed0In, uint64_t nSeed1In, CAddrMan& addrman_in, BanMan& banman_in, bool network_active)
+    : addrman(addrman_in), m_banman(banman_in), nSeed0(nSeed0In), nSeed1(nSeed1In)
 {
     SetTryNewOutboundPeer(false);
 
@@ -2727,11 +2727,9 @@ CConnman::~CConnman()
 std::vector<CAddress> CConnman::GetAddresses(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
 {
     std::vector<CAddress> addresses = addrman.GetAddr(max_addresses, max_pct, network);
-    if (m_banman) {
-        addresses.erase(std::remove_if(addresses.begin(), addresses.end(),
-                        [this](const CAddress& addr){return m_banman->IsDiscouraged(addr) || m_banman->IsBanned(addr);}),
-                        addresses.end());
-    }
+    addresses.erase(std::remove_if(addresses.begin(), addresses.end(),
+                [this](const CAddress& addr){return m_banman.IsDiscouraged(addr) || m_banman.IsBanned(addr);}),
+            addresses.end());
     return addresses;
 }
 

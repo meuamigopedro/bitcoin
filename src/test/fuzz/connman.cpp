@@ -12,6 +12,7 @@
 #include <test/fuzz/util.h>
 #include <test/util/setup_common.h>
 #include <util/translation.h>
+#include <banman.h>
 
 #include <cstdint>
 #include <vector>
@@ -26,7 +27,9 @@ FUZZ_TARGET_INIT(connman, initialize_connman)
     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
     SetMockTime(ConsumeTime(fuzzed_data_provider));
     CAddrMan addrman;
-    CConnman connman{fuzzed_data_provider.ConsumeIntegral<uint64_t>(), fuzzed_data_provider.ConsumeIntegral<uint64_t>(), addrman, fuzzed_data_provider.ConsumeBool()};
+    ArgsManager args_man;
+    auto banman = std::make_unique<BanMan>(args_man.GetDataDirBase() / "banlist", nullptr, DEFAULT_MISBEHAVING_BANTIME);
+    CConnman connman{fuzzed_data_provider.ConsumeIntegral<uint64_t>(), fuzzed_data_provider.ConsumeIntegral<uint64_t>(), addrman, *banman, fuzzed_data_provider.ConsumeBool()};
     CNetAddr random_netaddr;
     CNode random_node = ConsumeNode(fuzzed_data_provider);
     CSubNet random_subnet;
