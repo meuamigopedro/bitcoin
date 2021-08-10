@@ -35,10 +35,10 @@ public:
     //! last try whatsoever by us (memory only)
     int64_t nLastTry{0};
 
+private:
     //! last counted attempt (memory only)
     int64_t nLastCountAttempt{0};
 
-private:
     //! where knowledge about this address first came from
     CNetAddr source;
 
