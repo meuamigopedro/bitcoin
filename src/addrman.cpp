@@ -206,6 +206,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         vvNew[nUBucket][nUBucketPos] = nIdEvict;
         nNew++;
     }
+    // this isn't asserting anything..
     assert(vvTried[nKBucket][nKBucketPos] == -1);
 
     vvTried[nKBucket][nKBucketPos] = nId;
@@ -245,6 +246,8 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
         return;
 
     // find a bucket it is in now
+    // wait.... why? this is just confirming that it is in the new table at all.
+    // seems just historic
     int nRnd = insecure_rand.randrange(ADDRMAN_NEW_BUCKET_COUNT);
     int nUBucket = -1;
     for (unsigned int n = 0; n < ADDRMAN_NEW_BUCKET_COUNT; n++) {
@@ -384,15 +387,12 @@ CAddrInfo CAddrMan::Select_(bool newOnly) const
 {
     AssertLockHeld(cs);
 
-    if (vRandom.empty())
-        return CAddrInfo();
-
-    if (newOnly && nNew == 0)
+    if((nNew == 0 && newOnly) || (vRandom.empty())
         return CAddrInfo();
 
     // Use a 50% chance for choosing between tried and new table entries.
     if (!newOnly &&
-       (nTried > 0 && (nNew == 0 || insecure_rand.randbool() == 0))) {
+       nTried > 0 && (nNew == 0 || insecure_rand.randbool() == 0)) {
         // use a tried node
         double fChanceFactor = 1.0;
         while (1) {
@@ -607,6 +607,7 @@ void CAddrMan::ResolveCollisions_()
             int tried_bucket = info_new.GetTriedBucket(nKey, m_asmap);
             int tried_bucket_pos = info_new.GetBucketPosition(nKey, false, tried_bucket);
             if (!info_new.IsValid()) { // id_new may no longer map to a valid address
+                // Q: how would the validity change?
                 erase_collision = true;
             } else if (vvTried[tried_bucket][tried_bucket_pos] != -1) { // The position in the tried bucket is not empty
 

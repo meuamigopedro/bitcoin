@@ -31,6 +31,9 @@ int64_t GetTimeOffset()
     return nTimeOffset;
 }
 
+// could have chrono GetAdjustedTime
+// should be using chrono::timepoint, not chrono::duration
+// then can compare base clocks
 int64_t GetAdjustedTime()
 {
     return GetTime() + GetTimeOffset();

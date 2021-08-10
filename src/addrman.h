@@ -29,6 +29,10 @@
 /**
  * Extended statistics about a CAddress
  */
+
+// move bucket stuff to CAddrMan
+// make everything private with CAddrMan as a friend
+// make the nLastTry accessed via a function for net
 class CAddrInfo : public CAddress
 {
 public:
@@ -72,11 +76,24 @@ public:
     {
     }
 
-    CAddrInfo() : CAddress(), source()
+    // what's the point of these initializations?
+    // no point. compiler is going to do the same thing regardless.
+    // 100% style.
+    CAddrInfo() //: CAddress() , source()
     {
     }
 
+// these can all be private if we fixup the tests
+// main benefit- makes it clearer what the structure is
+// private + friend -> CAddrMan is the only one who touchesa
+// answer: WHO CARES
+
     //! Calculate in which "tried" bucket this entry belongs
+    // if these functions lived on CAddrMan, you could just give it the one pointer to CAddrInfo rather than two
+    // idea: dummy class with nKey, CAddrInfo, asmap that was just constructed / destroyed as needed
+    //
+    // code smell: CAddrInfo making use of info in CAddrMan, they should probably
+    // be in addrman (asking droplets of water what bucket they should be in)
     int GetTriedBucket(const uint256 &nKey, const std::vector<bool> &asmap) const;
 
     //! Calculate in which "new" bucket this entry belongs, given a certain source
@@ -473,6 +490,9 @@ public:
     {
         LOCK(cs);
         std::vector<int>().swap(vRandom);
+        // why is this swapped instead of just emptied?
+        // to reduce the capacity of the vector, not just clear it out
+        // shrink_to_fit is a request so might not happen
         nKey = insecure_rand.rand256();
         for (size_t bucket = 0; bucket < ADDRMAN_NEW_BUCKET_COUNT; bucket++) {
             for (size_t entry = 0; entry < ADDRMAN_BUCKET_SIZE; entry++) {
@@ -498,6 +518,7 @@ public:
         Clear();
     }
 
+    // Q: who uses this?
     ~CAddrMan()
     {
         nKey.SetNull();
@@ -508,6 +529,7 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs); // TODO: Cache this in an atomic to avoid this overhead
+        // Q: could this just be nNew + nTried? -> doesn't remove the lock overhead
         return vRandom.size();
     }
 

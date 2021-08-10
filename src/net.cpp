@@ -2062,7 +2062,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                 continue;
 
             // only consider very recently tried nodes after 30 failed attempts
-            if (nANow - addr.nLastTry < 600 && nTries < 30)
+            if (nNow - addr.nLastTry < 600 && nTries < 30)
                 continue;
 
             // for non-feelers, require all the services we'll want,
