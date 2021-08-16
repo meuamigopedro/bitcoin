@@ -2800,6 +2800,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
     }
 
     if (msg_type == NetMsgType::ADDR || msg_type == NetMsgType::ADDRV2) {
+        LogPrint(BCLog::NET, "ABCD ProcessMessage ADDR\n");
         int stream_version = vRecv.GetVersion();
         if (msg_type == NetMsgType::ADDRV2) {
             // Add ADDRV2_FORMAT to the version so that the CNetAddr and CAddress
@@ -2823,6 +2824,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             return;
         }
 
+        LogPrint(BCLog::NET, "ABCD ProcessMessage ADDR B\n");
         // Store the new addresses
         std::vector<CAddress> vAddrOk;
         int64_t nNow = GetAdjustedTime();
@@ -2842,8 +2844,10 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         uint64_t num_proc = 0;
         uint64_t num_rate_limit = 0;
         Shuffle(vAddr.begin(), vAddr.end(), FastRandomContext());
+        LogPrint(BCLog::NET, "ABCD ProcessMessage ADDR C\n");
         for (CAddress& addr : vAddr)
         {
+            LogPrint(BCLog::NET, "ABCD ProcessMessage ADDR D\n");
             if (interruptMsgProc)
                 return;
 
@@ -2876,14 +2880,17 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 RelayAddress(pfrom.GetId(), addr, fReachable);
             }
             // Do not store addresses outside our network
-            if (fReachable)
+            if (fReachable) {
                 vAddrOk.push_back(addr);
+                LogPrint(BCLog::NET, "ABCD ProcessMessage ADDR E\n");
+            }
         }
         peer->m_addr_processed += num_proc;
         peer->m_addr_rate_limited += num_rate_limit;
-        LogPrint(BCLog::NET, "Received addr: %u addresses (%u processed, %u rate-limited) from peer=%d\n",
+        LogPrint(BCLog::NET, "ABCD Received addr: %u addresses (%u processed, %u rate-limited) from peer=%d\n",
                  vAddr.size(), num_proc, num_rate_limit, pfrom.GetId());
 
+        LogPrint(BCLog::NET, "ABCD ProcessMessage ADDR F - Call Add with %d addrs\n", vAddrOk.size());
         m_addrman.Add(vAddrOk, pfrom.addr, 2 * 60 * 60);
         if (vAddr.size() < 1000) peer->m_getaddr_sent = false;
 

@@ -538,10 +538,9 @@ public:
 /** A combination of a network address (CNetAddr) and a (TCP) port */
 class CService : public CNetAddr
 {
-protected:
-    uint16_t port; // host order
 
 public:
+    uint16_t port; // host order
     CService();
     CService(const CNetAddr& ip, uint16_t port);
     CService(const struct in_addr& ipv4Addr, uint16_t port);

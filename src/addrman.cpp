@@ -283,11 +283,13 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
 
 bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimePenalty)
 {
+    LogPrint(BCLog::NET, "ABCD Add_ G, port: %d \n", addr.port);
     AssertLockHeld(cs);
 
     if (!addr.IsRoutable())
         return false;
 
+    LogPrint(BCLog::NET, "ABCD Add_ H, port: %d \n", addr.port);
     bool fNew = false;
     int nId;
     CAddrInfo* pinfo = Find(addr, &nId);
@@ -298,6 +300,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
     }
 
     if (pinfo) {
+        LogPrint(BCLog::NET, "ABCD Add_ I, port: %d \n", addr.port);
         // periodically update nTime
         bool fCurrentlyOnline = (GetAdjustedTime() - addr.nTime < 24 * 60 * 60);
         int64_t nUpdateInterval = (fCurrentlyOnline ? 60 * 60 : 24 * 60 * 60);
@@ -308,8 +311,10 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
         pinfo->nServices = ServiceFlags(pinfo->nServices | addr.nServices);
 
         // do not update if no new information is present
-        if (!addr.nTime || (pinfo->nTime && addr.nTime <= pinfo->nTime))
+        if (!addr.nTime || (pinfo->nTime && addr.nTime <= pinfo->nTime)) {
+            LogPrint(BCLog::NET, "ABCD Add_ I2, port: %d \n", addr.port);
             return false;
+        }
 
         // do not update if the entry was already in the "tried" table
         if (pinfo->fInTried)
@@ -319,19 +324,25 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
         if (pinfo->nRefCount == ADDRMAN_NEW_BUCKETS_PER_ADDRESS)
             return false;
 
+        LogPrint(BCLog::NET, "ABCD Add_ I3, port: %d \n", addr.port);
         // stochastic test: previous nRefCount == N: 2^N times harder to increase it
         int nFactor = 1;
         for (int n = 0; n < pinfo->nRefCount; n++)
             nFactor *= 2;
-        if (nFactor > 1 && (insecure_rand.randrange(nFactor) != 0))
+        //if (nFactor > 1 && (insecure_rand.randrange(nFactor) != 0)) {
+        if (false) {
+            LogPrint(BCLog::NET, "ABCD Add_ I4, port: %d \n", addr.port);
             return false;
+        }
     } else {
+        LogPrint(BCLog::NET, "ABCD Add_ J, port: %d \n", addr.port);
         pinfo = Create(addr, source, &nId);
         pinfo->nTime = std::max((int64_t)0, (int64_t)pinfo->nTime - nTimePenalty);
         nNew++;
         fNew = true;
     }
 
+    LogPrint(BCLog::NET, "ABCD Add_ K, port: %d \n", addr.port);
     int nUBucket = pinfo->GetNewBucket(nKey, source, m_asmap);
     int nUBucketPos = pinfo->GetBucketPosition(nKey, true, nUBucket);
     if (vvNew[nUBucket][nUBucketPos] != nId) {
@@ -353,6 +364,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             }
         }
     }
+    LogPrint(BCLog::NET, "ABCD Add_ L, port: %d \n", addr.port);
     return fNew;
 }
 
