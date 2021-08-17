@@ -26,6 +26,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/ordered_index.hpp>
+
 /** Default for -checkaddrman */
 static constexpr int32_t DEFAULT_ADDRMAN_CONSISTENCY_CHECKS{0};
 
@@ -59,6 +62,13 @@ private:
 
     //! position in vRandom
     mutable int nRandomPos{-1};
+
+    //! Which bucket this entry is in (tried bucket for fInTried, new bucket otherwise).
+    // based on this value, you can tell the value of fInTried
+    int m_bucket;
+
+    //! Which position in that bucket this entry occupies.
+    int m_bucketpos;
 
     friend class CAddrMan;
     friend class CAddrManDeterministic;
@@ -180,6 +190,32 @@ static const int64_t ADDRMAN_TEST_WINDOW = 40*60; // 40 minutes
  */
 class CAddrMan
 {
+private:
+    struct ByAddress {};
+    struct ByBucket {};
+
+    struct ByAddressExtractor
+    {
+        using result_type = std::pair<const CNetAddr&, bool>; // pair < addr, is_alias >
+        result_type operator()(const CAddrInfo& info) const { return {info, info.nRandomPos == -1}; }
+    };
+
+    using ByBucketView = std::tuple<bool, int, int>; // tuple<in_tried, bucket, position>
+
+    struct ByBucketExtractor
+    {
+        using result_type = ByBucketView;
+        result_type operator()(const CAddrInfo& info) const { return {info.fInTried, info.m_bucket, info.m_bucketpos}; }
+    };
+
+    using AddrManIndex = boost::multi_index_container<
+        CAddrInfo,
+        boost::multi_index::indexed_by<
+            boost::multi_index::ordered_non_unique<boost::multi_index::tag<ByAddress>, ByAddressExtractor>,
+            boost::multi_index::ordered_unique<boost::multi_index::tag<ByBucket>, ByBucketExtractor>
+        >
+    >;
+
 public:
     // Compressed IP->ASN mapping, loaded from a file when a node starts.
     // Should be always empty if no file was provided.
@@ -624,6 +660,9 @@ private:
     //! field which was 32 historically.
     //! @note Don't increment this. Increment `lowest_compatible` in `Serialize()` instead.
     static constexpr uint8_t INCOMPATIBILITY_BASE = 32;
+
+    // The actual data table
+    AddrManIndex m_index GUARDED_BY(cs);
 
     //! last used nId
     int nIdCount GUARDED_BY(cs){0};
