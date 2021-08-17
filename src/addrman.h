@@ -705,6 +705,10 @@ private:
     /** Perform consistency checks every m_consistency_check_ratio operations (if non-zero). */
     const int32_t m_consistency_check_ratio;
 
+    /** Based on which table info is on, update nTried or nNew by delta.
+     *  No-op if info is an alias. */
+    void UpdateStat(const CAddrInfo& info, int delta) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     CAddrInfo* Find(const CNetAddr& addr, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 

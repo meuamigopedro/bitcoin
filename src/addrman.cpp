@@ -118,6 +118,7 @@ CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, in
     mapAddr[addr] = nId;
     mapInfo[nId].nRandomPos = vRandom.size();
     vRandom.push_back(nId);
+    UpdateStat(mapInfo[nId], 1);
     if (pnId)
         *pnId = nId;
     return &mapInfo[nId];
@@ -160,7 +161,7 @@ void CAddrMan::Delete(int nId)
     vRandom.pop_back();
     mapAddr.erase(info);
     mapInfo.erase(nId);
-    nNew--;
+    UpdateStat(info, -1);
 }
 
 void CAddrMan::ClearNew(int nUBucket, int nUBucketPos)
@@ -192,7 +193,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
             info.nRefCount--;
         }
     }
-    nNew--;
+    UpdateStat(info, -1);
 
     assert(info.nRefCount == 0);
 
@@ -207,10 +208,10 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         CAddrInfo& infoOld = mapInfo[nIdEvict];
 
         // Remove the to-be-evicted item from the tried set.
+        UpdateStat(infoOld, -1);
         infoOld.fInTried = false;
         infoOld.Rebucket(nKey, m_asmap);
         vvTried[info.m_bucket][info.m_bucketpos] = -1;
-        nTried--;
 
         // find which new bucket it belongs to
         ClearNew(infoOld.m_bucket, infoOld.m_bucketpos);
@@ -219,11 +220,11 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         // Enter it into the new set again.
         infoOld.nRefCount = 1;
         vvNew[infoOld.m_bucket][infoOld.m_bucketpos] = nIdEvict;
-        nNew++;
+        UpdateStat(infoOld, 1);
     }
 
     vvTried[info.m_bucket][info.m_bucketpos] = nId;
-    nTried++;
+    UpdateStat(info, 1);
 }
 
 void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime)
@@ -341,7 +342,6 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
     } else {
         pinfo = Create(addr, source, &nId);
         pinfo->nTime = std::max((int64_t)0, (int64_t)pinfo->nTime - nTimePenalty);
-        nNew++;
         fNew = true;
     }
 
@@ -727,4 +727,15 @@ std::vector<bool> CAddrMan::DecodeAsmap(fs::path path)
         return {};
     }
     return bits;
+}
+
+void CAddrMan::UpdateStat(const CAddrInfo& info, int delta)
+{
+    if (info.nRandomPos != -1) {
+        if (info.fInTried) {
+            nTried += delta;
+        } else {
+            nNew += delta;
+        }
+    }
 }
