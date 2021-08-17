@@ -81,6 +81,12 @@ public:
         READWRITE(obj.source, obj.nLastSuccess, obj.nAttempts);
     }
 
+    void Rebucket(const uint256& key, const std::vector<bool> &asmap)
+    {
+        m_bucket = fInTried ? GetTriedBucket(key, asmap) : GetNewBucket(key, asmap);
+        m_bucketpos = GetBucketPosition(key, !fInTried, m_bucket);
+    }
+
     CAddrInfo(const CAddress &addrIn, const CNetAddr &addrSource) : CAddress(addrIn), source(addrSource)
     {
     }

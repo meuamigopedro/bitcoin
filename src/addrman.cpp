@@ -196,38 +196,34 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
 
     assert(info.nRefCount == 0);
 
-    // which tried bucket to move the entry to
-    int nKBucket = info.GetTriedBucket(nKey, m_asmap);
-    int nKBucketPos = info.GetBucketPosition(nKey, false, nKBucket);
+    info.fInTried = true;
+    info.Rebucket(nKey, m_asmap);
 
     // first make space to add it (the existing tried entry there is moved to new, deleting whatever is there).
-    if (vvTried[nKBucket][nKBucketPos] != -1) {
+    if (vvTried[info.m_bucket][info.m_bucketpos] != -1) {
         // find an item to evict
-        int nIdEvict = vvTried[nKBucket][nKBucketPos];
+        int nIdEvict = vvTried[info.m_bucket][info.m_bucketpos];
         assert(mapInfo.count(nIdEvict) == 1);
         CAddrInfo& infoOld = mapInfo[nIdEvict];
 
         // Remove the to-be-evicted item from the tried set.
         infoOld.fInTried = false;
-        vvTried[nKBucket][nKBucketPos] = -1;
+        infoOld.Rebucket(nKey, m_asmap);
+        vvTried[info.m_bucket][info.m_bucketpos] = -1;
         nTried--;
 
         // find which new bucket it belongs to
-        int nUBucket = infoOld.GetNewBucket(nKey, m_asmap);
-        int nUBucketPos = infoOld.GetBucketPosition(nKey, true, nUBucket);
-        ClearNew(nUBucket, nUBucketPos);
-        assert(vvNew[nUBucket][nUBucketPos] == -1);
+        ClearNew(infoOld.m_bucket, infoOld.m_bucketpos);
+        assert(vvNew[infoOld.m_bucket][infoOld.m_bucketpos] == -1);
 
         // Enter it into the new set again.
         infoOld.nRefCount = 1;
-        vvNew[nUBucket][nUBucketPos] = nIdEvict;
+        vvNew[infoOld.m_bucket][infoOld.m_bucketpos] = nIdEvict;
         nNew++;
     }
-    assert(vvTried[nKBucket][nKBucketPos] == -1);
 
-    vvTried[nKBucket][nKBucketPos] = nId;
+    vvTried[info.m_bucket][info.m_bucketpos] = nId;
     nTried++;
-    info.fInTried = true;
 }
 
 void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime)
@@ -349,21 +345,20 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
         fNew = true;
     }
 
-    int nUBucket = pinfo->GetNewBucket(nKey, source, m_asmap);
-    int nUBucketPos = pinfo->GetBucketPosition(nKey, true, nUBucket);
-    if (vvNew[nUBucket][nUBucketPos] != nId) {
-        bool fInsert = vvNew[nUBucket][nUBucketPos] == -1;
+    pinfo->Rebucket(nKey, m_asmap);
+    if (vvNew[pinfo->m_bucket][pinfo->m_bucketpos] != nId) {
+        bool fInsert = vvNew[pinfo->m_bucket][pinfo->m_bucketpos] == -1;
         if (!fInsert) {
-            CAddrInfo& infoExisting = mapInfo[vvNew[nUBucket][nUBucketPos]];
+            CAddrInfo& infoExisting = mapInfo[vvNew[pinfo->m_bucket][pinfo->m_bucketpos]];
             if (infoExisting.IsTerrible() || (infoExisting.nRefCount > 1 && pinfo->nRefCount == 0)) {
                 // Overwrite the existing new table entry.
                 fInsert = true;
             }
         }
         if (fInsert) {
-            ClearNew(nUBucket, nUBucketPos);
+            ClearNew(pinfo->m_bucket, pinfo->m_bucketpos);
             pinfo->nRefCount++;
-            vvNew[nUBucket][nUBucketPos] = nId;
+            vvNew[pinfo->m_bucket][pinfo->m_bucketpos] = nId;
         } else {
             if (pinfo->nRefCount == 0) {
                 Delete(nId);
