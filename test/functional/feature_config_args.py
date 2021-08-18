@@ -14,6 +14,7 @@ from test_framework import util
 class ConfArgsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
+        self.bind_to_localhost_only = False
         self.num_nodes = 1
         self.supports_cli = False
         self.wallet_names = []
@@ -86,6 +87,11 @@ class ConfArgsTest(BitcoinTestFramework):
         self.nodes[0].assert_start_raises_init_error(
             expected_msg='Error: No proxy server specified. Use -proxy=<ip> or -proxy=<ip:port>.',
             extra_args=['-proxy'],
+        )
+
+        self.nodes[0].assert_start_raises_init_error(
+            expected_msg='Error: Cannot set -listen=0 together with -listenonion=1',
+            extra_args=['-listen=0', '-listenonion=1'],
         )
 
     def test_log_buffer(self):
