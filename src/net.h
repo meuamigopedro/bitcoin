@@ -846,7 +846,6 @@ public:
         }
     };
 
-    // Addrman functions
     /**
      * Return all or many randomly selected addresses, optionally by network.
      *
