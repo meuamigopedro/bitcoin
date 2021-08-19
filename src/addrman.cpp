@@ -184,8 +184,9 @@ void CAddrMan::ClearNew(int nUBucket, int nUBucketPos)
 void CAddrMan::MakeTried(CAddrInfo& info, int nId)
 {
     AssertLockHeld(cs);
+    assert(!info.fInTried);
 
-    // remove the entry from all new buckets
+    // remove the entry from all new buckets in vvNew
     for (int bucket = 0; bucket < ADDRMAN_NEW_BUCKET_COUNT; bucket++) {
         int pos = info.GetBucketPosition(nKey, true, bucket);
         if (vvNew[bucket][pos] == nId) {
@@ -193,10 +194,17 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
             info.nRefCount--;
         }
     }
-    UpdateStat(info, -1);
-
     assert(info.nRefCount == 0);
 
+    // remove the entry from all new buckets in m_index
+    while (true) {
+        AddrManIndex::index<ByAddress>::type::iterator it = m_index.get<ByAddress>().lower_bound(std::pair<const CNetAddr&, bool>(info, false));
+        if (it == m_index.get<ByAddress>().end() || *it != static_cast<const CNetAddr&>(info)) break;
+        Erase(it);
+    }
+
+    // bookkeeping
+    UpdateStat(info, -1);
     info.fInTried = true;
     info.Rebucket(nKey, m_asmap);
 
@@ -213,13 +221,16 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         infoOld.Rebucket(nKey, m_asmap);
         vvTried[info.m_bucket][info.m_bucketpos] = -1;
 
-        // find which new bucket it belongs to
+        // clear out the new table slot for the evicted tried table item
         ClearNew(infoOld.m_bucket, infoOld.m_bucketpos);
         assert(vvNew[infoOld.m_bucket][infoOld.m_bucketpos] == -1);
+        auto it_existing_new = m_index.get<ByBucket>().find(ByBucketExtractor()(infoOld));
+        if (it_existing_new != m_index.get<ByBucket>().end()) Erase(it_existing_new);
 
-        // Enter it into the new set again.
+        // Enter the evicted tried table item into the new set
         infoOld.nRefCount = 1;
         vvNew[infoOld.m_bucket][infoOld.m_bucketpos] = nIdEvict;
+        Insert(infoOld, false); // insert into m_index
         UpdateStat(infoOld, 1);
     }
 
@@ -302,7 +313,6 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
     if (!addr.IsRoutable())
         return false;
 
-    bool fNew = false;
     int nId;
     CAddrInfo* pinfo = Find(addr, &nId);
 
@@ -311,6 +321,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
         nTimePenalty = 0;
     }
 
+    bool alias{false};
     if (pinfo) {
         // periodically update nTime
         bool fCurrentlyOnline = (GetAdjustedTime() - addr.nTime < 24 * 60 * 60);
@@ -339,10 +350,11 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             nFactor *= 2;
         if (nFactor > 1 && (insecure_rand.randrange(nFactor) != 0))
             return false;
+
+        alias = true;
     } else {
         pinfo = Create(addr, source, &nId);
         pinfo->nTime = std::max((int64_t)0, (int64_t)pinfo->nTime - nTimePenalty);
-        fNew = true;
     }
 
     pinfo->Rebucket(nKey, m_asmap);
@@ -356,7 +368,19 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             }
         }
         if (fInsert) {
+            // empty the new table bucket if a different address record was there
+            // from m_index:
+            auto it_existing = m_index.get<ByBucket>().find(ByBucketExtractor()(*pinfo));
+            if (it_existing != m_index.get<ByBucket>().end()) {
+                Erase(it_existing);
+            }
+            // from old data structs:
             ClearNew(pinfo->m_bucket, pinfo->m_bucketpos);
+
+            // insert the new element
+            // into m_index:
+            Insert(*pinfo, alias);
+            // into vvNew:
             pinfo->nRefCount++;
             vvNew[pinfo->m_bucket][pinfo->m_bucketpos] = nId;
         } else {
@@ -365,7 +389,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             }
         }
     }
-    return fNew;
+    return !alias;
 }
 
 void CAddrMan::Attempt_(const CService& addr, bool fCountFailure, int64_t nTime)
@@ -727,6 +751,24 @@ std::vector<bool> CAddrMan::DecodeAsmap(fs::path path)
         return {};
     }
     return bits;
+}
+
+void CAddrMan::EraseInner(AddrManIndex::index<ByAddress>::type::iterator it)
+{
+    AssertLockHeld(cs);
+
+    if (it->nRandomPos != -1) {
+        // In case the entry being deleted has an alias, we don't delete the requested one, but
+        // the alias instead. The alias' source IP is moved to the actual entry however, so
+        // it is preserved.
+        auto it_alias = m_index.get<ByAddress>().find(std::make_pair<const CNetAddr&, bool>(*it, true));
+        if (it_alias != m_index.get<ByAddress>().end()) {
+            Modify(it, [&](CAddrInfo& info) { info.source = it_alias->source; });
+            it = it_alias;
+        }
+    }
+
+    m_index.erase(it);
 }
 
 void CAddrMan::UpdateStat(const CAddrInfo& info, int delta)

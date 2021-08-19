@@ -709,11 +709,35 @@ private:
      *  No-op if info is an alias. */
     void UpdateStat(const CAddrInfo& info, int delta) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    template<typename It>
+    void Erase(It it) EXCLUSIVE_LOCKS_REQUIRED(cs) { EraseInner(m_index.project<ByAddress>(it)); }
+
+    void EraseInner(AddrManIndex::index<ByAddress>::type::iterator it) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     CAddrInfo* Find(const CNetAddr& addr, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Create a new entry and add it to the internal data structures mapInfo, mapAddr and vRandom.
     CAddrInfo* Create(const CAddress &addr, const CNetAddr &addrSource, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    template<typename Iter, typename Fun>
+    void Modify(Iter it, Fun fun) EXCLUSIVE_LOCKS_REQUIRED(cs)
+    {
+        UpdateStat(*it, -1);
+        m_index.modify(m_index.project<ByAddress>(it), [&](CAddrInfo& info) {
+            fun(info);
+            info.Rebucket(nKey, m_asmap);
+        });
+        UpdateStat(*it, 1);
+    }
+
+    /** Inserts a CAddrInfo into the m_index.  */
+    void Insert(CAddrInfo info, bool alias) EXCLUSIVE_LOCKS_REQUIRED(cs)
+    {
+        info.Rebucket(nKey, m_asmap);
+        info.nRandomPos = alias ? -1 : vRandom.size();
+        m_index.insert(info);
+    }
 
     //! Swap two elements in vRandom.
     void SwapRandom(unsigned int nRandomPos1, unsigned int nRandomPos2) const EXCLUSIVE_LOCKS_REQUIRED(cs);
