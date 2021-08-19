@@ -609,8 +609,7 @@ void CAddrMan::ResolveCollisions_()
             if (!info_new.IsValid()) { // id_new may no longer map to a valid address
                 // Q: how would the validity change?
                 erase_collision = true;
-            } else if (vvTried[tried_bucket][tried_bucket_pos] != -1) { // The position in the tried bucket is not empty
-
+            } else {
                 // Get the to-be-evicted address that is being tested
                 int id_old = vvTried[tried_bucket][tried_bucket_pos];
                 CAddrInfo& info_old = mapInfo[id_old];
@@ -636,9 +635,6 @@ void CAddrMan::ResolveCollisions_()
                     Good_(info_new, false, GetAdjustedTime());
                     erase_collision = true;
                 }
-            } else { // Collision is not actually a collision anymore
-                Good_(info_new, false, GetAdjustedTime());
-                erase_collision = true;
             }
         }
 
