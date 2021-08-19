@@ -1753,8 +1753,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     connOptions.vSeedNodes = args.GetArgs("-seednode");
 
     // Initiate outbound connections unless connect=0
-    connOptions.m_use_addrman_outgoing = !args.IsArgSet("-connect");
-    if (!connOptions.m_use_addrman_outgoing) {
+    if (args.IsArgSet("-connect")) {
+        connOptions.m_use_addrman_outgoing = false;
         const auto connect = args.GetArgs("-connect");
         if (connect.size() != 1 || connect[0] != "0") {
             connOptions.m_specified_outgoing = connect;
