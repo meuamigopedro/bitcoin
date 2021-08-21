@@ -201,7 +201,9 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
     info.Rebucket(nKey, m_asmap);
     auto it_existing = m_index.get<ByBucket>().find(ByBucketExtractor()(info));
 
-    // first make space to add it (the existing tried entry there is moved to new, deleting whatever is there).
+    // Ensure the tried table slot is empty
+    // If there is an existing entry, move it to the new table.
+    // If that new table slot is populated, simply overwrite it.
     if (vvTried[info.m_bucket][info.m_bucketpos] != -1) {
         assert(it_existing != m_index.get<ByBucket>().end());
 
@@ -211,14 +213,15 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         CAddrInfo& infoOld = mapInfo[nIdEvict];
         // infoOld should match to *it_existing
 
-        // Remove the to-be-evicted item from the tried set.
+
+        // Remove the entry from the tried table
         UpdateStat(infoOld, -1);
         Erase(it_existing);
         infoOld.fInTried = false;
         infoOld.Rebucket(nKey, m_asmap);
         vvTried[info.m_bucket][info.m_bucketpos] = -1;
 
-        // clear out the new table slot for the evicted tried table item
+        // Ensure the new table position is empty
         ClearNew(infoOld.m_bucket, infoOld.m_bucketpos);
         assert(vvNew[infoOld.m_bucket][infoOld.m_bucketpos] == -1);
         auto it_existing_new = m_index.get<ByBucket>().find(ByBucketExtractor()(infoOld));
@@ -226,7 +229,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
             Erase(it_existing_new);
         }
 
-        // Enter the evicted tried table item into the new set
+        // Enter the evicted tried table item into the new table
         infoOld.nRefCount = 1;
         vvNew[infoOld.m_bucket][infoOld.m_bucketpos] = nIdEvict;
         // from sipa's code:
