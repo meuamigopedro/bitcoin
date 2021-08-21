@@ -404,7 +404,7 @@ public:
             s >> info;
             mapAddr[info] = n;
             info.nRandomPos = vRandom.size();
-            vRandom.push_back(n);
+            //vRandom.push_back(n);
         }
         nIdCount = nNew;
 
@@ -419,7 +419,7 @@ public:
                 && vvTried[nKBucket][nKBucketPos] == -1) {
                 info.nRandomPos = vRandom.size();
                 info.fInTried = true;
-                vRandom.push_back(nIdCount);
+                //vRandom.push_back(nIdCount);
                 mapInfo[nIdCount] = info;
                 mapAddr[info] = nIdCount;
                 vvTried[nKBucket][nKBucketPos] = nIdCount;
@@ -679,10 +679,12 @@ private:
     //! find an nId based on its network address
     std::unordered_map<CNetAddr, int, CNetAddrHash> mapAddr GUARDED_BY(cs);
 
-    //! randomly-ordered vector of all nIds
-    //! This is mutable because it is unobservable outside the class, so any
-    //! changes to it (even in const methods) are also unobservable.
-    mutable std::vector<int> vRandom GUARDED_BY(cs);
+    /** Randomly-ordered vector of all unique entries.
+     *
+     *  This is mutable because it is unobservable outside the class, so any
+     *  changes to it (even in const methods) are also unobservable.
+     * */
+    mutable std::vector<AddrManIndex::index<ByAddress>::type::iterator> vRandom GUARDED_BY(cs);
 
     // number of "tried" entries
     int nTried GUARDED_BY(cs){0};
@@ -717,7 +719,7 @@ private:
     //! Find an entry.
     CAddrInfo* Find(const CNetAddr& addr, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    //! Create a new entry and add it to the internal data structures mapInfo, mapAddr and vRandom.
+    //! Create a new entry and add it to the internal data structures mapInfo, mapAddr.
     CAddrInfo* Create(const CAddress &addr, const CNetAddr &addrSource, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     template<typename Iter, typename Fun>
@@ -731,13 +733,15 @@ private:
         UpdateStat(*it, 1);
     }
 
-    /** Inserts a CAddrInfo into the m_index.  */
-    void Insert(CAddrInfo info, bool alias) EXCLUSIVE_LOCKS_REQUIRED(cs)
+    /** Inserts a CAddrInfo into the m_index & vRandom  */
+    AddrManIndex::index<ByAddress>::type::iterator Insert(CAddrInfo info, bool alias) EXCLUSIVE_LOCKS_REQUIRED(cs)
     {
         if (alias) assert(!info.fInTried);
         info.Rebucket(nKey, m_asmap);
         info.nRandomPos = alias ? -1 : vRandom.size();
-        m_index.insert(info);
+        auto it = m_index.insert(info).first;
+        if (!alias) vRandom.push_back(it);
+        return it;
     }
 
     //! Swap two elements in vRandom.

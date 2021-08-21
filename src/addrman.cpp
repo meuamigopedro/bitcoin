@@ -117,7 +117,6 @@ CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, in
     mapInfo[nId] = CAddrInfo(addr, addrSource);
     mapAddr[addr] = nId;
     mapInfo[nId].nRandomPos = vRandom.size();
-    vRandom.push_back(nId);
     UpdateStat(mapInfo[nId], 1);
     if (pnId)
         *pnId = nId;
@@ -133,19 +132,14 @@ void CAddrMan::SwapRandom(unsigned int nRndPos1, unsigned int nRndPos2) const
 
     assert(nRndPos1 < vRandom.size() && nRndPos2 < vRandom.size());
 
-    int nId1 = vRandom[nRndPos1];
-    int nId2 = vRandom[nRndPos2];
+    const auto it1 = vRandom[nRndPos1];
+    const auto it2 = vRandom[nRndPos2];
 
-    const auto it_1{mapInfo.find(nId1)};
-    const auto it_2{mapInfo.find(nId2)};
-    assert(it_1 != mapInfo.end());
-    assert(it_2 != mapInfo.end());
+    it1->nRandomPos = nRndPos2;
+    it2->nRandomPos = nRndPos1;
 
-    it_1->second.nRandomPos = nRndPos2;
-    it_2->second.nRandomPos = nRndPos1;
-
-    vRandom[nRndPos1] = nId2;
-    vRandom[nRndPos2] = nId1;
+    vRandom[nRndPos1] = it2;
+    vRandom[nRndPos2] = it1;
 }
 
 void CAddrMan::Delete(int nId)
@@ -157,8 +151,6 @@ void CAddrMan::Delete(int nId)
     assert(!info.fInTried);
     assert(info.nRefCount == 0);
 
-    SwapRandom(info.nRandomPos, vRandom.size() - 1);
-    vRandom.pop_back();
     mapAddr.erase(info);
     mapInfo.erase(nId);
     UpdateStat(info, -1);
@@ -207,34 +199,42 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
     UpdateStat(info, -1);
     info.fInTried = true;
     info.Rebucket(nKey, m_asmap);
+    auto it_existing = m_index.get<ByBucket>().find(ByBucketExtractor()(info));
 
     // first make space to add it (the existing tried entry there is moved to new, deleting whatever is there).
     if (vvTried[info.m_bucket][info.m_bucketpos] != -1) {
-        // find an item to evict
+        assert(it_existing != m_index.get<ByBucket>().end());
+
+        // Get the entry to evict from the tried table
         int nIdEvict = vvTried[info.m_bucket][info.m_bucketpos];
         assert(mapInfo.count(nIdEvict) == 1);
         CAddrInfo& infoOld = mapInfo[nIdEvict];
+        // infoOld should match to *it_existing
 
         // Remove the to-be-evicted item from the tried set.
         UpdateStat(infoOld, -1);
+        Erase(it_existing);
         infoOld.fInTried = false;
         infoOld.Rebucket(nKey, m_asmap);
         vvTried[info.m_bucket][info.m_bucketpos] = -1;
-        auto it_existing_tried = m_index.get<ByBucket>().find(std::tuple<bool, int, int>(true, infoOld.m_bucket, infoOld.m_bucketpos));
-        if (it_existing_tried != m_index.get<ByBucket>().end()) {
-            Erase(it_existing_tried);
-        }
 
         // clear out the new table slot for the evicted tried table item
         ClearNew(infoOld.m_bucket, infoOld.m_bucketpos);
         assert(vvNew[infoOld.m_bucket][infoOld.m_bucketpos] == -1);
         auto it_existing_new = m_index.get<ByBucket>().find(ByBucketExtractor()(infoOld));
-        if (it_existing_new != m_index.get<ByBucket>().end()) Erase(it_existing_new);
+        if (it_existing_new != m_index.get<ByBucket>().end()) {
+            Erase(it_existing_new);
+        }
 
         // Enter the evicted tried table item into the new set
         infoOld.nRefCount = 1;
         vvNew[infoOld.m_bucket][infoOld.m_bucketpos] = nIdEvict;
-        Insert(infoOld, false); // insert into m_index
+        // from sipa's code:
+        // bool alias = m_index.get<ByAddress>().count(std::pair<const CNetAddr&, bool>(info_evict, false));
+        // then feeds this bool into second param of Insert
+        // note: info_evict = infoOld
+        // why is this necessary? if item was on tried table, there should only be one entry?
+        Insert(infoOld, false); // insert into m_index & vRandom
         UpdateStat(infoOld, 1);
     }
 
@@ -383,7 +383,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
             ClearNew(pinfo->m_bucket, pinfo->m_bucketpos);
 
             // insert the new element
-            // into m_index:
+            // into m_index & vRandom:
             Insert(*pinfo, alias);
             // into vvNew:
             pinfo->nRefCount++;
@@ -508,7 +508,7 @@ int CAddrMan::Check_() const
         if (it == mapAddr.end() || it->second != n) {
             return -5;
         }
-        if (info.nRandomPos < 0 || (size_t)info.nRandomPos >= vRandom.size() || vRandom[info.nRandomPos] != n)
+        if (info.nRandomPos < 0 || (size_t)info.nRandomPos >= vRandom.size())
             return -14;
         if (info.nLastTry < 0)
             return -6;
@@ -584,10 +584,7 @@ void CAddrMan::GetAddr_(std::vector<CAddress>& vAddr, size_t max_addresses, size
 
         int nRndPos = insecure_rand.randrange(vRandom.size() - n) + n;
         SwapRandom(n, nRndPos);
-        const auto it{mapInfo.find(vRandom[n])};
-        assert(it != mapInfo.end());
-
-        const CAddrInfo& ai{it->second};
+        const CAddrInfo& ai = *vRandom[n];
 
         // Filter by network (optional)
         if (network != std::nullopt && ai.GetNetClass() != network) continue;
@@ -770,6 +767,10 @@ void CAddrMan::EraseInner(AddrManIndex::index<ByAddress>::type::iterator it)
         if (it_alias != m_index.get<ByAddress>().end()) {
             Modify(it, [&](CAddrInfo& info) { info.source = it_alias->source; });
             it = it_alias;
+        } else {
+            // Actually deleting a non-alias entry; remove it from vRandom.
+            SwapRandom(it->nRandomPos, vRandom.size() - 1);
+            vRandom.pop_back();
         }
     }
 
