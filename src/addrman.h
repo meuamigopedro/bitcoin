@@ -734,6 +734,7 @@ private:
     /** Inserts a CAddrInfo into the m_index.  */
     void Insert(CAddrInfo info, bool alias) EXCLUSIVE_LOCKS_REQUIRED(cs)
     {
+        if (alias) assert(!info.fInTried);
         info.Rebucket(nKey, m_asmap);
         info.nRandomPos = alias ? -1 : vRandom.size();
         m_index.insert(info);

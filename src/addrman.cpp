@@ -220,6 +220,10 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
         infoOld.fInTried = false;
         infoOld.Rebucket(nKey, m_asmap);
         vvTried[info.m_bucket][info.m_bucketpos] = -1;
+        auto it_existing_tried = m_index.get<ByBucket>().find(std::tuple<bool, int, int>(true, infoOld.m_bucket, infoOld.m_bucketpos));
+        if (it_existing_tried != m_index.get<ByBucket>().end()) {
+            Erase(it_existing_tried);
+        }
 
         // clear out the new table slot for the evicted tried table item
         ClearNew(infoOld.m_bucket, infoOld.m_bucketpos);
@@ -235,6 +239,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
     }
 
     vvTried[info.m_bucket][info.m_bucketpos] = nId;
+    Insert(info, false);
     UpdateStat(info, 1);
 }
 
