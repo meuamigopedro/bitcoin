@@ -254,62 +254,48 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
 
     nLastGood = nTime;
 
-    CAddrInfo* pinfo = Find(addr, &nId);
+    auto it = m_index.get<ByAddress>().find(std::pair<const CNetAddr&, bool>(addr, false));
 
     // if not found, bail out
-    if (!pinfo)
-        return;
+    if (it == m_index.get<ByAddress>().end()) return;
 
-    CAddrInfo& info = *pinfo;
+    const CAddrInfo& info = *it;
 
     // check whether we are talking about the exact same CService (including same port)
-    if (info != addr)
-        return;
+    if (info != addr) return;
 
     // update info
-    info.nLastSuccess = nTime;
-    info.nLastTry = nTime;
-    info.nAttempts = 0;
+    Modify(it, [&](CAddrInfo& info) {
+        info.nLastSuccess = nTime;
+        info.nLastTry = nTime;
+        info.nAttempts = 0;
+    });
     // nTime is not updated here, to avoid leaking information about
     // currently-connected peers.
 
     // if it is already in the tried set, don't do anything else
-    if (info.fInTried)
-        return;
+    if (info.fInTried) return;
 
     // find a bucket it is in now
-    int nRnd = insecure_rand.randrange(ADDRMAN_NEW_BUCKET_COUNT);
-    int nUBucket = -1;
-    for (unsigned int n = 0; n < ADDRMAN_NEW_BUCKET_COUNT; n++) {
-        int nB = (n + nRnd) % ADDRMAN_NEW_BUCKET_COUNT;
-        int nBpos = info.GetBucketPosition(nKey, true, nB);
-        if (vvNew[nB][nBpos] == nId) {
-            nUBucket = nB;
-            break;
-        }
-    }
-
-    // if no bucket is found, something bad happened;
-    // TODO: maybe re-add the node, but for now, just bail out
-    if (nUBucket == -1)
-        return;
+    std::advance(it, insecure_rand.randrange(CountAddr(addr)));
 
     // which tried bucket to move the entry to
     int tried_bucket = info.GetTriedBucket(nKey, m_asmap);
     int tried_bucket_pos = info.GetBucketPosition(nKey, false, tried_bucket);
 
     // Will moving this address into tried evict another entry?
-    if (test_before_evict && (vvTried[tried_bucket][tried_bucket_pos] != -1)) {
+    auto it_collision = m_index.get<ByBucket>().find(ByBucketView{true, tried_bucket, tried_bucket_pos});
+    if (test_before_evict && it_collision != m_index.get<ByBucket>().end()) {
         // Output the entry we'd be colliding with, for debugging purposes
-        auto colliding_entry = mapInfo.find(vvTried[tried_bucket][tried_bucket_pos]);
-        LogPrint(BCLog::ADDRMAN, "Collision inserting element into tried table (%s), moving %s to m_tried_collisions=%d\n", colliding_entry != mapInfo.end() ? colliding_entry->second.ToString() : "", addr.ToString(), m_tried_collisions.size());
+        LogPrint(BCLog::ADDRMAN, "Collision inserting element into tried table (%s), moving %s to m_tried_collisions=%d\n", it_collision->ToString(), addr.ToString(), m_tried_collisions.size());
         if (m_tried_collisions.size() < ADDRMAN_SET_TRIED_COLLISION_SIZE) {
-            m_tried_collisions.insert(nId);
+            m_tried_collisions.insert(&*it);
         }
     } else {
         LogPrint(BCLog::ADDRMAN, "Moving %s to tried\n", addr.ToString());
 
         // move nId to the tried tables
+        // TODO: update this function signature
         MakeTried(info, nId);
     }
 }
@@ -645,27 +631,24 @@ void CAddrMan::ResolveCollisions_()
 {
     AssertLockHeld(cs);
 
-    for (std::set<int>::iterator it = m_tried_collisions.begin(); it != m_tried_collisions.end();) {
-        int id_new = *it;
+
+    for (auto it = m_tried_collisions.begin(); it != m_tried_collisions.end();) {
+        auto it_old = *it;
+        auto it_next = std::next(it); // Needs to be precomputed, as it may be deleted by the Good_() calls.
 
         bool erase_collision = false;
 
-        // If id_new not found in mapInfo remove it from m_tried_collisions
-        if (mapInfo.count(id_new) != 1) {
-            erase_collision = true;
-        } else {
-            CAddrInfo& info_new = mapInfo[id_new];
+        {
+            const CAddrInfo& info_new = **it;
 
             // Which tried bucket to move the entry to.
             int tried_bucket = info_new.GetTriedBucket(nKey, m_asmap);
             int tried_bucket_pos = info_new.GetBucketPosition(nKey, false, tried_bucket);
-            if (!info_new.IsValid()) { // id_new may no longer map to a valid address
-                erase_collision = true;
-            } else if (vvTried[tried_bucket][tried_bucket_pos] != -1) { // The position in the tried bucket is not empty
+            auto it_old = m_index.get<ByBucket>().find(ByBucketView{true, tried_bucket, tried_bucket_pos});
+            if (it_old != m_index.get<ByBucket>().end()) { // The position in the tried bucket is not empty
 
                 // Get the to-be-evicted address that is being tested
-                int id_old = vvTried[tried_bucket][tried_bucket_pos];
-                CAddrInfo& info_old = mapInfo[id_old];
+                const CAddrInfo& info_old = *it_old;
 
                 // Has successfully connected in last X hours
                 if (GetAdjustedTime() - info_old.nLastSuccess < ADDRMAN_REPLACEMENT_HOURS*(60*60)) {
@@ -695,10 +678,10 @@ void CAddrMan::ResolveCollisions_()
         }
 
         if (erase_collision) {
-            m_tried_collisions.erase(it++);
-        } else {
-            it++;
+            m_tried_collisions.erase(it_old);
         }
+
+        it = it_next;
     }
 }
 
@@ -708,27 +691,21 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
 
     if (m_tried_collisions.size() == 0) return CAddrInfo();
 
-    std::set<int>::iterator it = m_tried_collisions.begin();
+    auto it = m_tried_collisions.begin();
 
     // Selects a random element from m_tried_collisions
     std::advance(it, insecure_rand.randrange(m_tried_collisions.size()));
-    int id_new = *it;
+    auto it_new = *it;
 
-    // If id_new not found in mapInfo remove it from m_tried_collisions
-    if (mapInfo.count(id_new) != 1) {
-        m_tried_collisions.erase(it);
-        return CAddrInfo();
-    }
-
-    const CAddrInfo& newInfo = mapInfo[id_new];
+    const CAddrInfo& newInfo = *it_new;
 
     // which tried bucket to move the entry to
     int tried_bucket = newInfo.GetTriedBucket(nKey, m_asmap);
     int tried_bucket_pos = newInfo.GetBucketPosition(nKey, false, tried_bucket);
 
-    int id_old = vvTried[tried_bucket][tried_bucket_pos];
-
-    return mapInfo[id_old];
+    auto it_old = m_index.get<ByBucket>().find(ByBucketView{true, tried_bucket, tried_bucket_pos});
+    if (it_old != m_index.get<ByBucket>().end()) return *it_old;
+    return CAddrInfo();
 }
 
 std::vector<bool> CAddrMan::DecodeAsmap(fs::path path)
@@ -789,4 +766,13 @@ void CAddrMan::UpdateStat(const CAddrInfo& info, int delta)
             nNew += delta;
         }
     }
+}
+
+int CAddrMan::CountAddr(const CNetAddr& addr) const
+{
+    AssertLockHeld(cs);
+    auto it = m_index.get<ByAddress>().lower_bound(std::pair<const CNetAddr&, bool>(addr, false));
+    if (it == m_index.get<ByAddress>().end()) return 0;
+    auto it_end = m_index.get<ByAddress>().upper_bound(std::pair<const CNetAddr&, bool>(addr, true));
+    return std::distance(it, it_end);
 }

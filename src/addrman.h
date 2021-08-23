@@ -702,7 +702,7 @@ private:
     int64_t nLastGood GUARDED_BY(cs){1};
 
     //! Holds addrs inserted into tried table that collide with existing entries. Test-before-evict discipline used to resolve these collisions.
-    std::set<int> m_tried_collisions;
+    std::set<const CAddrInfo*> m_tried_collisions;
 
     /** Perform consistency checks every m_consistency_check_ratio operations (if non-zero). */
     const int32_t m_consistency_check_ratio;
@@ -743,6 +743,9 @@ private:
         if (!alias) vRandom.push_back(it);
         return it;
     }
+
+    //! Count the number of occurrences of entries with this address (including aliases).
+    int CountAddr(const CNetAddr& addr) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Swap two elements in vRandom.
     void SwapRandom(unsigned int nRandomPos1, unsigned int nRandomPos2) const EXCLUSIVE_LOCKS_REQUIRED(cs);
