@@ -697,15 +697,17 @@ void CAddrMan::Attempt_(const CService& addr, bool fCountFailure, int64_t nTime)
     }
 }
 
-CAddrInfo CAddrMan::Select_(bool newOnly) const
+std::pair<CAddress, int64_t> CAddrMan::Select_(bool newOnly) const
 {
     AssertLockHeld(cs);
 
-    if (vRandom.empty())
-        return CAddrInfo();
+    if (vRandom.empty()) {
+        return std::make_pair(CAddrInfo(), 0);
+    }
 
-    if (newOnly && nNew == 0)
-        return CAddrInfo();
+    if (newOnly && nNew == 0) {
+        return std::make_pair(CAddrInfo(), 0);
+    }
 
     // Use a 50% chance for choosing between tried and new table entries.
     if (!newOnly &&
@@ -723,8 +725,9 @@ CAddrInfo CAddrMan::Select_(bool newOnly) const
             const auto it_found{mapInfo.find(nId)};
             assert(it_found != mapInfo.end());
             const CAddrInfo& info{it_found->second};
-            if (insecure_rand.randbits(30) < fChanceFactor * info.GetChance() * (1 << 30))
-                return info;
+            if (insecure_rand.randbits(30) < fChanceFactor * info.GetChance() * (1 << 30)) {
+                return std::make_pair(info, info.nLastTry);
+            }
             fChanceFactor *= 1.2;
         }
     } else {
@@ -741,8 +744,9 @@ CAddrInfo CAddrMan::Select_(bool newOnly) const
             const auto it_found{mapInfo.find(nId)};
             assert(it_found != mapInfo.end());
             const CAddrInfo& info{it_found->second};
-            if (insecure_rand.randbits(30) < fChanceFactor * info.GetChance() * (1 << 30))
-                return info;
+            if (insecure_rand.randbits(30) < fChanceFactor * info.GetChance() * (1 << 30)) {
+                return std::make_pair(info, info.nLastTry);
+            }
             fChanceFactor *= 1.2;
         }
     }
@@ -978,11 +982,11 @@ void CAddrMan::ResolveCollisions_()
     }
 }
 
-CAddrInfo CAddrMan::SelectTriedCollision_()
+std::pair<CAddress, int64_t> CAddrMan::SelectTriedCollision_()
 {
     AssertLockHeld(cs);
 
-    if (m_tried_collisions.size() == 0) return CAddrInfo();
+    if (m_tried_collisions.size() == 0) return std::make_pair(CAddrInfo(), 0);
 
     std::set<int>::iterator it = m_tried_collisions.begin();
 
@@ -993,7 +997,7 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
     // If id_new not found in mapInfo remove it from m_tried_collisions
     if (mapInfo.count(id_new) != 1) {
         m_tried_collisions.erase(it);
-        return CAddrInfo();
+        return std::make_pair(CAddrInfo(), 0);
     }
 
     const CAddrInfo& newInfo = mapInfo[id_new];
@@ -1003,8 +1007,9 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
     int tried_bucket_pos = newInfo.GetBucketPosition(nKey, false, tried_bucket);
 
     int id_old = vvTried[tried_bucket][tried_bucket_pos];
+    auto info_old = mapInfo[id_old];
 
-    return mapInfo[id_old];
+    return std::make_pair(info_old, info_old.nLastTry);
 }
 
 std::vector<bool> CAddrMan::DecodeAsmap(fs::path path)

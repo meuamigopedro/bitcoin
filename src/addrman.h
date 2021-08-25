@@ -34,14 +34,13 @@ static constexpr int32_t DEFAULT_ADDRMAN_CONSISTENCY_CHECKS{0};
  */
 class CAddrInfo : public CAddress
 {
-public:
+private:
     //! last try whatsoever by us (memory only)
     int64_t nLastTry{0};
 
     //! last counted attempt (memory only)
     int64_t nLastCountAttempt{0};
 
-private:
     //! where knowledge about this address first came from
     CNetAddr source;
 
@@ -236,12 +235,12 @@ public:
     }
 
     //! Randomly select an address in tried that another address is attempting to evict.
-    CAddrInfo SelectTriedCollision()
+    std::pair<CAddress, int64_t> SelectTriedCollision()
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         Check();
-        const CAddrInfo ret = SelectTriedCollision_();
+        const auto ret = SelectTriedCollision_();
         Check();
         return ret;
     }
@@ -249,12 +248,12 @@ public:
     /**
      * Choose an address to connect to.
      */
-    CAddrInfo Select(bool newOnly = false) const
+    std::pair<CAddress, int64_t> Select(bool newOnly = false) const
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
         Check();
-        const CAddrInfo addrRet = Select_(newOnly);
+        const auto addrRet = Select_(newOnly);
         Check();
         return addrRet;
     }
@@ -391,13 +390,13 @@ private:
     void Attempt_(const CService &addr, bool fCountFailure, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Select an address to connect to, if newOnly is set to true, only the new table is selected from.
-    CAddrInfo Select_(bool newOnly) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::pair<CAddress, int64_t> Select_(bool newOnly) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! See if any to-be-evicted tried table entries have been tested and if so resolve the collisions.
     void ResolveCollisions_() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Return a random to-be-evicted tried table address.
-    CAddrInfo SelectTriedCollision_() EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::pair<CAddress, int64_t> SelectTriedCollision_() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Consistency check
     void Check() const EXCLUSIVE_LOCKS_REQUIRED(cs)
