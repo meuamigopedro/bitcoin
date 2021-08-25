@@ -171,12 +171,12 @@ public:
     void ResolveCollisions();
 
     //! Randomly select an address in tried that another address is attempting to evict.
-    CAddrInfo SelectTriedCollision();
+    std::pair<CAddress, int64_t> SelectTriedCollision();
 
     /**
      * Choose an address to connect to.
      */
-    CAddrInfo Select(bool newOnly = false) const;
+    std::pair<CAddress, int64_t> Select(bool newOnly = false) const;
 
     /**
      * Return all or many randomly selected addresses, optionally by network.
