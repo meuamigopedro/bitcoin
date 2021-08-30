@@ -1166,7 +1166,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     assert(!node.addrman);
     auto check_addrman = std::clamp<int32_t>(args.GetArg("-checkaddrman", DEFAULT_ADDRMAN_CONSISTENCY_CHECKS), 0, 1000000);
-    node.addrman = std::make_unique<CAddrMan>(/* deterministic */ false, /* consistency_check_ratio */ check_addrman);
+    node.addrman = CAddrMan::make(/* deterministic */ false, /* consistency_check_ratio */ check_addrman);
     {
         // Load addresses from peers.dat
         uiInterface.InitMessage(_("Loading P2P addresses…").translated);
@@ -1176,7 +1176,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
             LogPrintf("Loaded %i addresses from peers.dat  %dms\n", node.addrman->size(), GetTimeMillis() - nStart);
         } else {
             // Addrman can be in an inconsistent state after failure, reset it
-            node.addrman = std::make_unique<CAddrMan>(/* deterministic */ false, /* consistency_check_ratio */ check_addrman);
+            node.addrman = CAddrMan::make( /* deterministic */ false, /* consistency_check_ratio */ check_addrman);
             LogPrintf("Recreating peers.dat\n");
             adb.Write(*node.addrman);
         }
@@ -1304,7 +1304,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
             return false;
         }
         const uint256 asmap_version = SerializeHash(asmap);
-        node.connman->SetAsmap(std::move(asmap));
+        //node.connman->SetAsmap(std::move(asmap));
         LogPrintf("Using asmap version %s for IP bucketing\n", asmap_version.ToString());
     } else {
         LogPrintf("Using /16 prefix for IP bucketing\n");

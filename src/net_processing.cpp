@@ -1435,9 +1435,7 @@ PeerManagerImpl::PeerManagerImpl(const CChainParams& chainparams, CConnman& conn
       m_banman(banman),
       m_chainman(chainman),
       m_mempool(pool),
-      m_ignore_incoming_txs(ignore_incoming_txs)
-{
-}
+      m_ignore_incoming_txs(ignore_incoming_txs){}
 
 void PeerManagerImpl::StartScheduledTasks(CScheduler& scheduler)
 {

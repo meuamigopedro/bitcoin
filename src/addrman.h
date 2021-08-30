@@ -61,6 +61,7 @@ private:
 
     friend class CAddrMan;
     friend class CAddrManDeterministic;
+    friend class AddrManImpl;
 
 public:
 
@@ -148,6 +149,66 @@ static constexpr int ADDRMAN_BUCKET_SIZE{1 << ADDRMAN_BUCKET_SIZE_LOG2};
 class CAddrMan
 {
 public:
+
+    static std::unique_ptr<CAddrMan> make(bool deterministic, int32_t consistency_check_ratio);
+
+    virtual ~CAddrMan() {}
+
+    // Read asmap from provided binary file
+    static std::vector<bool> DecodeAsmap(fs::path path);
+
+    virtual void Serialize(CHashWriter& s_) const = 0;
+    virtual void Serialize(CAutoFile& s) const = 0;
+    virtual void Serialize(CDataStream& s) const = 0;
+
+    virtual void Unserialize(CAutoFile& s) = 0;
+    virtual void Unserialize(CHashVerifier<CAutoFile>& s) = 0;
+    virtual void Unserialize(CDataStream& s) = 0;
+    virtual void Unserialize(CHashVerifier<CDataStream>& s) = 0;
+
+    //! Return the number of (unique) addresses in all tables.
+    virtual size_t size() const = 0;
+
+    //! Add addresses to addrman's new table.
+    virtual bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0) = 0;
+
+    //! Mark an entry as accessible.
+    virtual void Good(const CService &addr, int64_t nTime = GetAdjustedTime()) = 0;
+
+    //! Mark an entry as connection attempted to.
+    virtual void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime()) = 0;
+
+    //! See if any to-be-evicted tried table entries have been tested and if so resolve the collisions.
+    virtual void ResolveCollisions() = 0;
+
+    //! Randomly select an address in tried that another address is attempting to evict.
+    virtual std::pair<CAddress, int64_t> SelectTriedCollision() = 0;
+
+    /**
+     * Choose an address to connect to.
+     */
+    virtual std::pair<CAddress, int64_t> Select(bool newOnly = false) const = 0;
+
+    /**
+     * Return all or many randomly selected addresses, optionally by network.
+     *
+     * @param[in] max_addresses  Maximum number of addresses to return (0 = all).
+     * @param[in] max_pct        Maximum percentage of addresses to return (0 = all).
+     * @param[in] network        Select only addresses of this network (nullopt = all).
+     */
+    virtual std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const = 0;
+
+    //! Outer function for Connected_()
+    virtual void Connected(const CService &addr, int64_t nTime = GetAdjustedTime()) = 0;
+
+    virtual void SetServices(const CService &addr, ServiceFlags nServices) = 0;
+};
+
+class AddrManImpl final : public CAddrMan
+{
+public:
+    AddrManImpl(bool deterministic, int32_t consistency_check_ratio);
+
     // Compressed IP->ASN mapping, loaded from a file when a node starts.
     // Should be always empty if no file was provided.
     // This mapping is then used for bucketing nodes in Addrman.
@@ -164,32 +225,48 @@ public:
     // would be re-bucketed accordingly.
     std::vector<bool> m_asmap;
 
-    // Read asmap from provided binary file
-    static std::vector<bool> DecodeAsmap(fs::path path);
-
     template <typename Stream>
-    void Serialize(Stream& s_) const EXCLUSIVE_LOCKS_REQUIRED(!cs);
+    void Serialize(Stream& s_) const;
 
-    template <typename Stream>
-    void Unserialize(Stream& s_) EXCLUSIVE_LOCKS_REQUIRED(!cs);
-
-    explicit CAddrMan(bool deterministic, int32_t consistency_check_ratio);
-
-    ~CAddrMan()
-    {
-        nKey.SetNull();
+    void Serialize(CHashWriter& s) const override {
+         Serialize<CHashWriter>(s);
     }
 
-    //! Return the number of (unique) addresses in all tables.
-    size_t size() const
-        EXCLUSIVE_LOCKS_REQUIRED(!cs)
+    void Serialize(CAutoFile& s) const override {
+        Serialize<CAutoFile>(s);
+    }
+
+    void Serialize(CDataStream& s) const override {
+        Serialize<CDataStream>(s);
+    }
+
+    template <typename Stream>
+    void Unserialize(Stream& s_);
+
+    void Unserialize(CAutoFile& s) override {
+        Unserialize<CAutoFile>(s);
+    }
+
+    void Unserialize(CHashVerifier<CAutoFile>& s) override {
+        Unserialize<CHashVerifier<CAutoFile>>(s);
+    }
+
+    void Unserialize(CDataStream& s) override {
+        Unserialize<CDataStream>(s);
+    }
+
+    void Unserialize(CHashVerifier<CDataStream>& s) override {
+        Unserialize<CHashVerifier<CDataStream>>(s);
+    }
+
+
+    size_t size() const override
     {
         LOCK(cs); // TODO: Cache this in an atomic to avoid this overhead
         return vRandom.size();
     }
 
-    //! Add addresses to addrman's new table.
-    bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
+    bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0) override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -204,8 +281,7 @@ public:
         return nAdd > 0;
     }
 
-    //! Mark an entry as accessible.
-    void Good(const CService &addr, int64_t nTime = GetAdjustedTime())
+    void Good(const CService &addr, int64_t nTime = GetAdjustedTime()) override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -214,8 +290,7 @@ public:
         Check();
     }
 
-    //! Mark an entry as connection attempted to.
-    void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime())
+    void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime()) override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -224,8 +299,7 @@ public:
         Check();
     }
 
-    //! See if any to-be-evicted tried table entries have been tested and if so resolve the collisions.
-    void ResolveCollisions()
+    void ResolveCollisions() override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -234,8 +308,7 @@ public:
         Check();
     }
 
-    //! Randomly select an address in tried that another address is attempting to evict.
-    std::pair<CAddress, int64_t> SelectTriedCollision()
+    std::pair<CAddress, int64_t> SelectTriedCollision() override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -245,10 +318,7 @@ public:
         return ret;
     }
 
-    /**
-     * Choose an address to connect to.
-     */
-    std::pair<CAddress, int64_t> Select(bool newOnly = false) const
+    std::pair<CAddress, int64_t> Select(bool newOnly = false) const override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -258,14 +328,7 @@ public:
         return addrRet;
     }
 
-    /**
-     * Return all or many randomly selected addresses, optionally by network.
-     *
-     * @param[in] max_addresses  Maximum number of addresses to return (0 = all).
-     * @param[in] max_pct        Maximum percentage of addresses to return (0 = all).
-     * @param[in] network        Select only addresses of this network (nullopt = all).
-     */
-    std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
+    std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -276,8 +339,7 @@ public:
         return vAddr;
     }
 
-    //! Outer function for Connected_()
-    void Connected(const CService &addr, int64_t nTime = GetAdjustedTime())
+    void Connected(const CService &addr, int64_t nTime = GetAdjustedTime()) override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -286,7 +348,7 @@ public:
         Check();
     }
 
-    void SetServices(const CService &addr, ServiceFlags nServices)
+    void SetServices(const CService &addr, ServiceFlags nServices) override
         EXCLUSIVE_LOCKS_REQUIRED(!cs)
     {
         LOCK(cs);
@@ -438,9 +500,6 @@ private:
 
     //! Update an entry's service bits.
     void SetServices_(const CService &addr, ServiceFlags nServices) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    friend class CAddrManTest;
-    friend class CAddrManDeterministic;
 };
 
 #endif // BITCOIN_ADDRMAN_H

@@ -651,7 +651,8 @@ public:
 
     void CloseSocketDisconnect();
 
-    void copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap);
+    //void copyStats(CNodeStats &stats, const std::vector<bool> &m_asmap);
+    void copyStats(CNodeStats &stats);
 
     ServiceFlags GetLocalServices() const
     {
@@ -949,7 +950,7 @@ public:
     */
     std::chrono::microseconds PoissonNextSendInbound(std::chrono::microseconds now, std::chrono::seconds average_interval);
 
-    void SetAsmap(std::vector<bool> asmap) { addrman.m_asmap = std::move(asmap); }
+    //void SetAsmap(std::vector<bool> asmap) { addrman.m_asmap = std::move(asmap); }
 
     /** Return true if we should disconnect the peer for failing an inactivity check. */
     bool ShouldRunInactivityChecks(const CNode& node, std::optional<int64_t> now=std::nullopt) const;
