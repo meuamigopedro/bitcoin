@@ -15,6 +15,18 @@
 #include <unordered_map>
 #include <unordered_set>
 
+/** Total number of buckets for tried addresses */
+static constexpr int32_t ADDRMAN_TRIED_BUCKET_COUNT_LOG2{8};
+static constexpr int ADDRMAN_TRIED_BUCKET_COUNT{1 << ADDRMAN_TRIED_BUCKET_COUNT_LOG2};
+
+/** Total number of buckets for new addresses */
+static constexpr int32_t ADDRMAN_NEW_BUCKET_COUNT_LOG2{10};
+static constexpr int ADDRMAN_NEW_BUCKET_COUNT{1 << ADDRMAN_NEW_BUCKET_COUNT_LOG2};
+
+/** Maximum allowed number of entries in buckets for new and tried addresses */
+static constexpr int32_t ADDRMAN_BUCKET_SIZE_LOG2{6};
+static constexpr int ADDRMAN_BUCKET_SIZE{1 << ADDRMAN_BUCKET_SIZE_LOG2};
+
 /** Over how many buckets entries with tried addresses from a single group (/16 for IPv4) are spread */
 static constexpr uint32_t ADDRMAN_TRIED_BUCKETS_PER_GROUP{8};
 /** Over how many buckets entries with new addresses originating from a single group are spread */
