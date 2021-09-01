@@ -67,7 +67,6 @@ private:
     mutable int nRandomPos{-1};
 
     friend class CAddrMan;
-    friend class CAddrManDeterministic;
 
 public:
 
@@ -169,38 +168,239 @@ double CAddrInfo::GetChance(int64_t nNow) const
     return fChance;
 }
 
-class CAddrMan::Impl {
+class CAddrMan::Impl
+{
+
 public:
-    Impl() {}
-    ~Impl() {}
+    Impl(std::vector<bool>&& asmap, bool deterministic, int32_t consistency_check_ratio)
+        : insecure_rand{deterministic}
+        , nKey{deterministic ? uint256{1} : insecure_rand.rand256()}
+        , m_consistency_check_ratio{consistency_check_ratio}
+        , m_asmap{std::move(asmap)}
+    {
+        for (auto& bucket : vvNew) {
+            for (auto& entry : bucket) {
+                entry = -1;
+            }
+        }
+        for (auto& bucket : vvTried) {
+            for (auto& entry : bucket) {
+                entry = -1;
+            }
+        }
+    }
+
+    ~Impl()
+    {
+        nKey.SetNull();
+    }
+
+
+    template <typename Stream>
+    void Serialize(Stream& s_) const EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    template <typename Stream>
+    void Unserialize(Stream& s_) EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    size_t size() const EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    void Good(const CService &addr, int64_t nTime = GetAdjustedTime())
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime())
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    void ResolveCollisions()
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    std::pair<CAddress, int64_t> SelectTriedCollision()
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    std::pair<CAddress, int64_t> Select(bool newOnly = false) const
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    void Connected(const CService &addr, int64_t nTime = GetAdjustedTime())
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    void SetServices(const CService &addr, ServiceFlags nServices)
+        EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
+    const std::vector<bool>& GetAsmap() const;
+
+private:
+    //! A mutex to protect the inner data structures.
+    mutable Mutex cs;
+
+    //! Source of random numbers for randomization in inner loops
+    mutable FastRandomContext insecure_rand GUARDED_BY(cs);
+
+    //! secret key to randomize bucket select with
+    uint256 nKey;
+
+    //! Serialization versions.
+    enum Format : uint8_t {
+        V0_HISTORICAL = 0,    //!< historic format, before commit e6b343d88
+        V1_DETERMINISTIC = 1, //!< for pre-asmap files
+        V2_ASMAP = 2,         //!< for files including asmap version
+        V3_BIP155 = 3,        //!< same as V2_ASMAP plus addresses are in BIP155 format
+    };
+
+    //! The maximum format this software knows it can unserialize. Also, we always serialize
+    //! in this format.
+    //! The format (first byte in the serialized stream) can be higher than this and
+    //! still this software may be able to unserialize the file - if the second byte
+    //! (see `lowest_compatible` in `Unserialize()`) is less or equal to this.
+    static constexpr Format FILE_FORMAT = Format::V3_BIP155;
+
+    //! The initial value of a field that is incremented every time an incompatible format
+    //! change is made (such that old software versions would not be able to parse and
+    //! understand the new file format). This is 32 because we overtook the "key size"
+    //! field which was 32 historically.
+    //! @note Don't increment this. Increment `lowest_compatible` in `Serialize()` instead.
+    static constexpr uint8_t INCOMPATIBILITY_BASE = 32;
+
+    //! last used nId
+    int nIdCount GUARDED_BY(cs){0};
+
+    //! table with information about all nIds
+    std::unordered_map<int, CAddrInfo> mapInfo GUARDED_BY(cs);
+
+    //! find an nId based on its network address
+    std::unordered_map<CNetAddr, int, CNetAddrHash> mapAddr GUARDED_BY(cs);
+
+    //! randomly-ordered vector of all nIds
+    //! This is mutable because it is unobservable outside the class, so any
+    //! changes to it (even in const methods) are also unobservable.
+    mutable std::vector<int> vRandom GUARDED_BY(cs);
+
+    // number of "tried" entries
+    int nTried GUARDED_BY(cs){0};
+
+    //! list of "tried" buckets
+    int vvTried[ADDRMAN_TRIED_BUCKET_COUNT][ADDRMAN_BUCKET_SIZE] GUARDED_BY(cs);
+
+    //! number of (unique) "new" entries
+    int nNew GUARDED_BY(cs){0};
+
+    //! list of "new" buckets
+    int vvNew[ADDRMAN_NEW_BUCKET_COUNT][ADDRMAN_BUCKET_SIZE] GUARDED_BY(cs);
+
+    //! last time Good was called (memory only). Initially set to 1 so that "never" is strictly worse.
+    int64_t nLastGood GUARDED_BY(cs){1};
+
+    //! Holds addrs inserted into tried table that collide with existing entries. Test-before-evict discipline used to resolve these collisions.
+    std::set<int> m_tried_collisions;
+
+    /** Perform consistency checks every m_consistency_check_ratio operations (if non-zero). */
+    const int32_t m_consistency_check_ratio;
+
+    // Compressed IP->ASN mapping, loaded from a file when a node starts.
+    // Should be always empty if no file was provided.
+    // This mapping is then used for bucketing nodes in Addrman.
+    //
+    // If asmap is provided, nodes will be bucketed by
+    // AS they belong to, in order to make impossible for a node
+    // to connect to several nodes hosted in a single AS.
+    // This is done in response to Erebus attack, but also to generally
+    // diversify the connections every node creates,
+    // especially useful when a large fraction of nodes
+    // operate under a couple of cloud providers.
+    //
+    // If a new asmap was provided, the existing records
+    // would be re-bucketed accordingly.
+    const std::vector<bool> m_asmap;
+
+    //! Find an entry.
+    CAddrInfo* Find(const CNetAddr& addr, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Create a new entry and add it to the internal data structures mapInfo, mapAddr and vRandom.
+    CAddrInfo* Create(const CAddress &addr, const CNetAddr &addrSource, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Swap two elements in vRandom.
+    void SwapRandom(unsigned int nRandomPos1, unsigned int nRandomPos2) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Move an entry from the "new" table(s) to the "tried" table
+    void MakeTried(CAddrInfo& info, int nId) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Delete an entry. It must not be in tried, and have refcount 0.
+    void Delete(int nId) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Clear a position in a "new" table. This is the only place where entries are actually deleted.
+    void ClearNew(int nUBucket, int nUBucketPos) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Mark an entry "good", possibly moving it from "new" to "tried".
+    void Good_(const CService &addr, bool test_before_evict, int64_t time) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Add an entry to the "new" table.
+    bool Add_(const CAddress &addr, const CNetAddr& source, int64_t nTimePenalty) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Mark an entry as attempted to connect.
+    void Attempt_(const CService &addr, bool fCountFailure, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Select an address to connect to, if newOnly is set to true, only the new table is selected from.
+    std::pair<CAddress, int64_t> Select_(bool newOnly) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! See if any to-be-evicted tried table entries have been tested and if so resolve the collisions.
+    void ResolveCollisions_() EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Return a random to-be-evicted tried table address.
+    std::pair<CAddress, int64_t> SelectTriedCollision_() EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Consistency check
+    void Check() const EXCLUSIVE_LOCKS_REQUIRED(cs)
+    {
+        AssertLockHeld(cs);
+
+        const int err = Check_();
+        if (err) {
+            LogPrintf("ADDRMAN CONSISTENCY CHECK FAILED!!! err=%i\n", err);
+            assert(false);
+        }
+    }
+
+    //! Perform consistency check. Returns an error code or zero.
+    int Check_() const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    /**
+     * Return all or many randomly selected addresses, optionally by network.
+     *
+     * @param[out] vAddr         Vector of randomly selected addresses from vRandom.
+     * @param[in] max_addresses  Maximum number of addresses to return (0 = all).
+     * @param[in] max_pct        Maximum percentage of addresses to return (0 = all).
+     * @param[in] network        Select only addresses of this network (nullopt = all).
+     */
+    void GetAddr_(std::vector<CAddress>& vAddr, size_t max_addresses, size_t max_pct, std::optional<Network> network) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    /** We have successfully connected to this peer. Calling this function
+     *  updates the CAddress's nTime, which is used in our IsTerrible()
+     *  decisions and gossiped to peers. Callers should be careful that updating
+     *  this information doesn't leak topology information to network spies.
+     *
+     *  net_processing calls this function when it *disconnects* from a peer to
+     *  not leak information about currently connected peers.
+     *
+     * @param[in]   addr     The address of the peer we were connected to
+     * @param[in]   nTime    The time that we were last connected to this peer
+     */
+    void Connected_(const CService& addr, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    //! Update an entry's service bits.
+    void SetServices_(const CService &addr, ServiceFlags nServices) EXCLUSIVE_LOCKS_REQUIRED(cs);
 };
 
 CAddrMan::CAddrMan(std::vector<bool> asmap, bool deterministic, int32_t consistency_check_ratio)
-    : m_impl(std::make_unique<CAddrMan::Impl>())
-    , insecure_rand{deterministic}
-    , nKey{deterministic ? uint256{1} : insecure_rand.rand256()}
-    , m_consistency_check_ratio{consistency_check_ratio}
-    , m_asmap{std::move(asmap)}
-{
-    for (auto& bucket : vvNew) {
-        for (auto& entry : bucket) {
-            entry = -1;
-        }
-    }
-    for (auto& bucket : vvTried) {
-        for (auto& entry : bucket) {
-            entry = -1;
-        }
-    }
-}
+    : m_impl(std::make_unique<CAddrMan::Impl>(std::move(asmap), deterministic, consistency_check_ratio)) {}
 
-CAddrMan::~CAddrMan()
-{
-    nKey.SetNull();
-}
+CAddrMan::~CAddrMan() = default;
 
 template <typename Stream>
-void CAddrMan::Serialize(Stream& s_) const
+void CAddrMan::Impl::Serialize(Stream& s_) const
 {
     LOCK(cs);
 
@@ -303,7 +503,7 @@ void CAddrMan::Serialize(Stream& s_) const
 }
 
 template <typename Stream>
-void CAddrMan::Unserialize(Stream& s_)
+void CAddrMan::Impl::Unserialize(Stream& s_)
 {
     LOCK(cs);
 
@@ -469,16 +669,7 @@ void CAddrMan::Unserialize(Stream& s_)
     Check();
 }
 
-// explicit instantiation
-template void CAddrMan::Serialize(CHashWriter& s) const;
-template void CAddrMan::Serialize(CAutoFile& s) const;
-template void CAddrMan::Serialize(CDataStream& s) const;
-template void CAddrMan::Unserialize(CAutoFile& s);
-template void CAddrMan::Unserialize(CHashVerifier<CAutoFile>& s);
-template void CAddrMan::Unserialize(CDataStream& s);
-template void CAddrMan::Unserialize(CHashVerifier<CDataStream>& s);
-
-CAddrInfo* CAddrMan::Find(const CNetAddr& addr, int* pnId)
+CAddrInfo* CAddrMan::Impl::Find(const CNetAddr& addr, int* pnId)
 {
     AssertLockHeld(cs);
 
@@ -493,7 +684,7 @@ CAddrInfo* CAddrMan::Find(const CNetAddr& addr, int* pnId)
     return nullptr;
 }
 
-CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId)
+CAddrInfo* CAddrMan::Impl::Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId)
 {
     AssertLockHeld(cs);
 
@@ -507,7 +698,7 @@ CAddrInfo* CAddrMan::Create(const CAddress& addr, const CNetAddr& addrSource, in
     return &mapInfo[nId];
 }
 
-void CAddrMan::SwapRandom(unsigned int nRndPos1, unsigned int nRndPos2) const
+void CAddrMan::Impl::SwapRandom(unsigned int nRndPos1, unsigned int nRndPos2) const
 {
     AssertLockHeld(cs);
 
@@ -531,7 +722,7 @@ void CAddrMan::SwapRandom(unsigned int nRndPos1, unsigned int nRndPos2) const
     vRandom[nRndPos2] = nId1;
 }
 
-void CAddrMan::Delete(int nId)
+void CAddrMan::Impl::Delete(int nId)
 {
     AssertLockHeld(cs);
 
@@ -547,7 +738,7 @@ void CAddrMan::Delete(int nId)
     nNew--;
 }
 
-void CAddrMan::ClearNew(int nUBucket, int nUBucketPos)
+void CAddrMan::Impl::ClearNew(int nUBucket, int nUBucketPos)
 {
     AssertLockHeld(cs);
 
@@ -564,7 +755,7 @@ void CAddrMan::ClearNew(int nUBucket, int nUBucketPos)
     }
 }
 
-void CAddrMan::MakeTried(CAddrInfo& info, int nId)
+void CAddrMan::Impl::MakeTried(CAddrInfo& info, int nId)
 {
     AssertLockHeld(cs);
 
@@ -614,7 +805,7 @@ void CAddrMan::MakeTried(CAddrInfo& info, int nId)
     info.fInTried = true;
 }
 
-void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime)
+void CAddrMan::Impl::Good_(const CService& addr, bool test_before_evict, int64_t nTime)
 {
     AssertLockHeld(cs);
 
@@ -682,7 +873,7 @@ void CAddrMan::Good_(const CService& addr, bool test_before_evict, int64_t nTime
     }
 }
 
-bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimePenalty)
+bool CAddrMan::Impl::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimePenalty)
 {
     AssertLockHeld(cs);
 
@@ -757,7 +948,7 @@ bool CAddrMan::Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimeP
     return fNew;
 }
 
-void CAddrMan::Attempt_(const CService& addr, bool fCountFailure, int64_t nTime)
+void CAddrMan::Impl::Attempt_(const CService& addr, bool fCountFailure, int64_t nTime)
 {
     AssertLockHeld(cs);
 
@@ -781,7 +972,7 @@ void CAddrMan::Attempt_(const CService& addr, bool fCountFailure, int64_t nTime)
     }
 }
 
-std::pair<CAddress, int64_t> CAddrMan::Select_(bool newOnly) const
+std::pair<CAddress, int64_t> CAddrMan::Impl::Select_(bool newOnly) const
 {
     AssertLockHeld(cs);
 
@@ -832,7 +1023,7 @@ std::pair<CAddress, int64_t> CAddrMan::Select_(bool newOnly) const
     }
 }
 
-int CAddrMan::Check_() const
+int CAddrMan::Impl::Check_() const
 {
     AssertLockHeld(cs);
 
@@ -924,7 +1115,7 @@ int CAddrMan::Check_() const
     return 0;
 }
 
-void CAddrMan::GetAddr_(std::vector<CAddress>& vAddr, size_t max_addresses, size_t max_pct, std::optional<Network> network) const
+void CAddrMan::Impl::GetAddr_(std::vector<CAddress>& vAddr, size_t max_addresses, size_t max_pct, std::optional<Network> network) const
 {
     AssertLockHeld(cs);
 
@@ -959,7 +1150,7 @@ void CAddrMan::GetAddr_(std::vector<CAddress>& vAddr, size_t max_addresses, size
     }
 }
 
-void CAddrMan::Connected_(const CService& addr, int64_t nTime)
+void CAddrMan::Impl::Connected_(const CService& addr, int64_t nTime)
 {
     AssertLockHeld(cs);
 
@@ -981,7 +1172,7 @@ void CAddrMan::Connected_(const CService& addr, int64_t nTime)
         info.nTime = nTime;
 }
 
-void CAddrMan::SetServices_(const CService& addr, ServiceFlags nServices)
+void CAddrMan::Impl::SetServices_(const CService& addr, ServiceFlags nServices)
 {
     AssertLockHeld(cs);
 
@@ -1001,7 +1192,7 @@ void CAddrMan::SetServices_(const CService& addr, ServiceFlags nServices)
     info.nServices = nServices;
 }
 
-void CAddrMan::ResolveCollisions_()
+void CAddrMan::Impl::ResolveCollisions_()
 {
     AssertLockHeld(cs);
 
@@ -1062,7 +1253,7 @@ void CAddrMan::ResolveCollisions_()
     }
 }
 
-std::pair<CAddress, int64_t> CAddrMan::SelectTriedCollision_()
+std::pair<CAddress, int64_t> CAddrMan::Impl::SelectTriedCollision_()
 {
     AssertLockHeld(cs);
 
@@ -1117,4 +1308,176 @@ std::vector<bool> CAddrMan::DecodeAsmap(fs::path path)
         return {};
     }
     return bits;
+}
+
+// explicit instantiation
+template void CAddrMan::Serialize(CHashWriter& s) const;
+template void CAddrMan::Serialize(CAutoFile& s) const;
+template void CAddrMan::Serialize(CDataStream& s) const;
+template void CAddrMan::Unserialize(CAutoFile& s);
+template void CAddrMan::Unserialize(CHashVerifier<CAutoFile>& s);
+template void CAddrMan::Unserialize(CDataStream& s);
+template void CAddrMan::Unserialize(CHashVerifier<CDataStream>& s);
+
+template <typename Stream>
+void CAddrMan::Serialize(Stream& s_) const
+{
+    m_impl->Serialize<Stream>(s_);
+}
+
+template <typename Stream>
+void CAddrMan::Unserialize(Stream& s_)
+{
+    m_impl->Unserialize<Stream>(s_);
+}
+
+
+size_t CAddrMan::size() const
+{
+    return m_impl->size();
+}
+
+
+size_t CAddrMan::Impl::size() const
+{
+    LOCK(cs); // TODO: Cache this in an atomic to avoid this overhead
+    return vRandom.size();
+}
+
+bool CAddrMan::Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty)
+{
+    return m_impl->Add(vAddr, source, nTimePenalty);
+}
+
+bool CAddrMan::Impl::Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty)
+{
+    LOCK(cs);
+    int nAdd = 0;
+    Check();
+    for (std::vector<CAddress>::const_iterator it = vAddr.begin(); it != vAddr.end(); it++)
+        nAdd += Add_(*it, source, nTimePenalty) ? 1 : 0;
+    Check();
+    if (nAdd) {
+        LogPrint(BCLog::ADDRMAN, "Added %i addresses from %s: %i tried, %i new\n", nAdd, source.ToString(), nTried, nNew);
+    }
+    return nAdd > 0;
+}
+
+void CAddrMan::Good(const CService &addr, int64_t nTime)
+{
+    m_impl->Good(addr, nTime);
+}
+
+void CAddrMan::Impl::Good(const CService &addr, int64_t nTime)
+{
+    LOCK(cs);
+    Check();
+    Good_(addr, /* test_before_evict */ true, nTime);
+    Check();
+}
+
+void CAddrMan::Attempt(const CService &addr, bool fCountFailure, int64_t nTime)
+{
+    m_impl->Attempt(addr, fCountFailure, nTime);
+}
+
+void CAddrMan::Impl::Attempt(const CService &addr, bool fCountFailure, int64_t nTime)
+{
+    LOCK(cs);
+    Check();
+    Attempt_(addr, fCountFailure, nTime);
+    Check();
+}
+
+void CAddrMan::ResolveCollisions()
+{
+    m_impl->ResolveCollisions();
+}
+
+void CAddrMan::Impl::ResolveCollisions()
+{
+    LOCK(cs);
+    Check();
+    ResolveCollisions_();
+    Check();
+}
+
+std::pair<CAddress, int64_t> CAddrMan::SelectTriedCollision()
+{
+    return m_impl->SelectTriedCollision();
+}
+
+std::pair<CAddress, int64_t> CAddrMan::Impl::SelectTriedCollision()
+{
+    LOCK(cs);
+    Check();
+    const auto ret = SelectTriedCollision_();
+    Check();
+    return ret;
+}
+
+std::pair<CAddress, int64_t> CAddrMan::Select(bool newOnly) const
+{
+    return m_impl->Select(newOnly);
+}
+
+std::pair<CAddress, int64_t> CAddrMan::Impl::Select(bool newOnly) const
+{
+    LOCK(cs);
+    Check();
+    const auto addrRet = Select_(newOnly);
+    Check();
+    return addrRet;
+}
+
+std::vector<CAddress> CAddrMan::GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
+{
+    return m_impl->GetAddr(max_addresses, max_pct, network);
+}
+
+std::vector<CAddress> CAddrMan::Impl::GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
+{
+    LOCK(cs);
+    Check();
+    std::vector<CAddress> vAddr;
+    GetAddr_(vAddr, max_addresses, max_pct, network);
+    Check();
+    return vAddr;
+}
+
+void CAddrMan::Connected(const CService &addr, int64_t nTime)
+{
+    m_impl->Connected(addr, nTime);
+}
+
+void CAddrMan::Impl::Connected(const CService &addr, int64_t nTime)
+{
+    LOCK(cs);
+    Check();
+    Connected_(addr, nTime);
+    Check();
+}
+
+
+void CAddrMan::SetServices(const CService &addr, ServiceFlags nServices)
+{
+    m_impl->SetServices(addr, nServices);
+}
+
+void CAddrMan::Impl::SetServices(const CService &addr, ServiceFlags nServices)
+{
+    LOCK(cs);
+    Check();
+    SetServices_(addr, nServices);
+    Check();
+}
+
+const std::vector<bool>& CAddrMan::GetAsmap() const
+{
+    return m_impl->GetAsmap();
+}
+
+const std::vector<bool>& CAddrMan::Impl::GetAsmap() const
+{
+    return m_asmap;
 }
