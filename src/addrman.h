@@ -76,6 +76,9 @@ static constexpr int ADDRMAN_BUCKET_SIZE{1 << ADDRMAN_BUCKET_SIZE_LOG2};
  */
 class CAddrMan
 {
+    class Impl;
+    const std::unique_ptr<Impl> m_impl;
+
 public:
     // Read asmap from provided binary file
     static std::vector<bool> DecodeAsmap(fs::path path);
@@ -88,10 +91,7 @@ public:
 
     explicit CAddrMan(std::vector<bool> asmap, bool deterministic, int32_t consistency_check_ratio);
 
-    ~CAddrMan()
-    {
-        nKey.SetNull();
-    }
+    ~CAddrMan();
 
     //! Return the number of (unique) addresses in all tables.
     size_t size() const

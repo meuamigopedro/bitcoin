@@ -169,8 +169,15 @@ double CAddrInfo::GetChance(int64_t nNow) const
     return fChance;
 }
 
+class CAddrMan::Impl {
+public:
+    Impl() {}
+    ~Impl() {}
+};
+
 CAddrMan::CAddrMan(std::vector<bool> asmap, bool deterministic, int32_t consistency_check_ratio)
-    : insecure_rand{deterministic}
+    : m_impl(std::make_unique<CAddrMan::Impl>())
+    , insecure_rand{deterministic}
     , nKey{deterministic ? uint256{1} : insecure_rand.rand256()}
     , m_consistency_check_ratio{consistency_check_ratio}
     , m_asmap{std::move(asmap)}
@@ -185,6 +192,11 @@ CAddrMan::CAddrMan(std::vector<bool> asmap, bool deterministic, int32_t consiste
             entry = -1;
         }
     }
+}
+
+CAddrMan::~CAddrMan()
+{
+    nKey.SetNull();
 }
 
 template <typename Stream>
