@@ -291,17 +291,6 @@ private:
      */
     void GetAddr_(std::vector<CAddress>& vAddr, size_t max_addresses, size_t max_pct, std::optional<Network> network) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    /** We have successfully connected to this peer. Calling this function
-     *  updates the CAddress's nTime, which is used in our IsTerrible()
-     *  decisions and gossiped to peers. Callers should be careful that updating
-     *  this information doesn't leak topology information to network spies.
-     *
-     *  net_processing calls this function when it *disconnects* from a peer to
-     *  not leak information about currently connected peers.
-     *
-     * @param[in]   addr     The address of the peer we were connected to
-     * @param[in]   nTime    The time that we were last connected to this peer
-     */
     void Connected_(const CService& addr, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Update an entry's service bits.
