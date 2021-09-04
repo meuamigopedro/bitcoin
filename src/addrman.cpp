@@ -5,13 +5,24 @@
 
 #include <addrman.h>
 
+#include <clientversion.h>
 #include <hash.h>
 #include <logging.h>
 #include <netaddress.h>
+#include <protocol.h>
+#include <random.h>
 #include <serialize.h>
+#include <streams.h>
+#include <sync.h>
+#include <threadsafety.h>
+#include <timedata.h>
+#include <uint256.h>
 
 #include <cmath>
+#include <iostream>
+#include <iterator>
 #include <optional>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
