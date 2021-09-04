@@ -36,6 +36,77 @@ static constexpr size_t ADDRMAN_SET_TRIED_COLLISION_SIZE{10};
 /** The maximum time we'll spend trying to resolve a tried table collision, in seconds */
 static constexpr int64_t ADDRMAN_TEST_WINDOW{40*60}; // 40 minutes
 
+/**
+ * Extended statistics about a CAddress
+ */
+class CAddrInfo : public CAddress
+{
+private:
+    //! last try whatsoever by us (memory only)
+    int64_t nLastTry{0};
+
+    //! last counted attempt (memory only)
+    int64_t nLastCountAttempt{0};
+
+    //! where knowledge about this address first came from
+    CNetAddr source;
+
+    //! last successful connection by us
+    int64_t nLastSuccess{0};
+
+    //! connection attempts since last successful attempt
+    int nAttempts{0};
+
+    //! reference count in new sets (memory only)
+    int nRefCount{0};
+
+    //! in tried set? (memory only)
+    bool fInTried{false};
+
+    //! position in vRandom
+    mutable int nRandomPos{-1};
+
+    friend class CAddrMan;
+    friend class CAddrManDeterministic;
+
+public:
+
+    SERIALIZE_METHODS(CAddrInfo, obj)
+    {
+        READWRITEAS(CAddress, obj);
+        READWRITE(obj.source, obj.nLastSuccess, obj.nAttempts);
+    }
+
+    CAddrInfo(const CAddress &addrIn, const CNetAddr &addrSource) : CAddress(addrIn), source(addrSource)
+    {
+    }
+
+    CAddrInfo() : CAddress(), source()
+    {
+    }
+
+    //! Calculate in which "tried" bucket this entry belongs
+    int GetTriedBucket(const uint256 &nKey, const std::vector<bool> &asmap) const;
+
+    //! Calculate in which "new" bucket this entry belongs, given a certain source
+    int GetNewBucket(const uint256 &nKey, const CNetAddr& src, const std::vector<bool> &asmap) const;
+
+    //! Calculate in which "new" bucket this entry belongs, using its default source
+    int GetNewBucket(const uint256 &nKey, const std::vector<bool> &asmap) const
+    {
+        return GetNewBucket(nKey, source, asmap);
+    }
+
+    //! Calculate in which position of a bucket to store this entry.
+    int GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) const;
+
+    //! Determine whether the statistics about this entry are bad enough so that it can just be deleted
+    bool IsTerrible(int64_t nNow = GetAdjustedTime()) const;
+
+    //! Calculate the relative chance this entry should be given when selecting nodes to connect to
+    double GetChance(int64_t nNow = GetAdjustedTime()) const;
+};
+
 int CAddrInfo::GetTriedBucket(const uint256& nKey, const std::vector<bool> &asmap) const
 {
     uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << GetKey()).GetCheapHash();
