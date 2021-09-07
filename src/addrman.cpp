@@ -227,7 +227,7 @@ public:
     bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    void Good(const CService &addr, int64_t nTime = GetAdjustedTime())
+    void Good(const CService &addr, bool test_before_evict, int64_t nTime = GetAdjustedTime())
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime())
@@ -252,6 +252,12 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     const std::vector<bool>& GetAsmap() const;
+
+    bool CompareAddrman(const CAddrMan& other) const;
+
+    void SetRandomContext(const uint256& rand_seed);
+
+    void MarkGoodWithoutTesting(const CService& addr, int64_t time);
 
 private:
     //! A mutex to protect the inner data structures.
@@ -1374,14 +1380,14 @@ bool CAddrMan::Impl::Add(const std::vector<CAddress> &vAddr, const CNetAddr& sou
 
 void CAddrMan::Good(const CService &addr, int64_t nTime)
 {
-    m_impl->Good(addr, nTime);
+    m_impl->Good(addr, true, nTime);
 }
 
-void CAddrMan::Impl::Good(const CService &addr, int64_t nTime)
+void CAddrMan::Impl::Good(const CService &addr, bool test_before_evict, int64_t nTime)
 {
     LOCK(cs);
     Check();
-    Good_(addr, /* test_before_evict */ true, nTime);
+    Good_(addr, test_before_evict, nTime);
     Check();
 }
 
@@ -1489,4 +1495,104 @@ const std::vector<bool>& CAddrMan::GetAsmap() const
 const std::vector<bool>& CAddrMan::Impl::GetAsmap() const
 {
     return m_asmap;
+}
+
+bool CAddrMan::CompareAddrman(const CAddrMan& other) const
+{
+    return m_impl->CompareAddrman(other);
+}
+
+bool CAddrMan::Impl::CompareAddrman(const CAddrMan& other) const
+{
+    LOCK2(cs, other.m_impl->cs);
+
+    if (mapInfo.size() != other.m_impl->mapInfo.size() || nNew != other.m_impl->nNew ||
+            nTried != other.m_impl->nTried) {
+        return false;
+    }
+
+    // Check that all values in `mapInfo` are equal to all values in `other.m_impl->mapInfo`.
+    // Keys may be different.
+
+    using CAddrInfoHasher = std::function<size_t(const CAddrInfo&)>;
+    using CAddrInfoEq = std::function<bool(const CAddrInfo&, const CAddrInfo&)>;
+
+    CNetAddrHash netaddr_hasher;
+
+    CAddrInfoHasher addrinfo_hasher = [&netaddr_hasher](const CAddrInfo& a) {
+        return netaddr_hasher(static_cast<CNetAddr>(a)) ^ netaddr_hasher(a.source) ^
+            a.nLastSuccess ^ a.nAttempts ^ a.nRefCount ^ a.fInTried;
+    };
+
+    CAddrInfoEq addrinfo_eq = [](const CAddrInfo& lhs, const CAddrInfo& rhs) {
+        return static_cast<CNetAddr>(lhs) == static_cast<CNetAddr>(rhs) &&
+            lhs.source == rhs.source && lhs.nLastSuccess == rhs.nLastSuccess &&
+            lhs.nAttempts == rhs.nAttempts && lhs.nRefCount == rhs.nRefCount &&
+            lhs.fInTried == rhs.fInTried;
+    };
+
+    using Addresses = std::unordered_set<CAddrInfo, CAddrInfoHasher, CAddrInfoEq>;
+
+    const size_t num_addresses{mapInfo.size()};
+
+    Addresses addresses{num_addresses, addrinfo_hasher, addrinfo_eq};
+    for (const auto& [id, addr] : mapInfo) {
+        addresses.insert(addr);
+    }
+
+    Addresses other_addresses{num_addresses, addrinfo_hasher, addrinfo_eq};
+    for (const auto& [id, addr] : other.m_impl->mapInfo) {
+        other_addresses.insert(addr);
+    }
+
+    if (addresses != other_addresses) {
+        return false;
+    }
+
+    auto IdsReferToSameAddress = [&](int id, int other_id) EXCLUSIVE_LOCKS_REQUIRED(cs, other.m_impl->cs) {
+        if (id == -1 && other_id == -1) {
+            return true;
+        }
+        if ((id == -1 && other_id != -1) || (id != -1 && other_id == -1)) {
+            return false;
+        }
+        return mapInfo.at(id) == other.m_impl->mapInfo.at(other_id);
+    };
+
+    // Check that `vvNew` contains the same addresses as `other.m_impl->vvNew`. Notice - `vvNew[i][j]`
+    // contains just an id and the address is to be found in `mapInfo.at(id)`. The ids
+    // themselves may differ between `vvNew` and `other.m_impl->vvNew`.
+    for (size_t i = 0; i < ADDRMAN_NEW_BUCKET_COUNT; ++i) {
+        for (size_t j = 0; j < ADDRMAN_BUCKET_SIZE; ++j) {
+            if (!IdsReferToSameAddress(vvNew[i][j], other.m_impl->vvNew[i][j])) {
+                return false;
+            }
+        }
+    }
+
+    // Same for `vvTried`.
+    for (size_t i = 0; i < ADDRMAN_TRIED_BUCKET_COUNT; ++i) {
+        for (size_t j = 0; j < ADDRMAN_BUCKET_SIZE; ++j) {
+            if (!IdsReferToSameAddress(vvTried[i][j], other.m_impl->vvTried[i][j])) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+void CAddrMan::SetRandomContext(const uint256& rand_seed)
+{
+    m_impl->SetRandomContext(rand_seed);
+}
+
+void CAddrMan::Impl::SetRandomContext(const uint256& rand_seed)
+{
+    WITH_LOCK(cs, insecure_rand = FastRandomContext{rand_seed});
+}
+
+void CAddrMan::MarkGoodWithoutTesting(const CService& addr, int64_t time)
+{
+    m_impl->Good(addr, false, time);
 }

@@ -116,6 +116,22 @@ public:
     void SetServices(const CService &addr, ServiceFlags nServices);
 
     const std::vector<bool>& GetAsmap() const;
+
+    // ================= Test Only ================= //
+
+    /** Compare with another AddrMan.
+     *  This compares:
+     *  - the values in `mapInfo` (the keys aka ids are ignored)
+     *  - vvNew entries refer to the same addresses
+     *  - vvTried entries refer to the same addresses
+     */
+    bool CompareAddrman(const CAddrMan& other) const;
+
+    // Takes in the deterministic seed to set insecure_rand
+    void SetRandomContext(const uint256& rand_seed);
+
+    // Call good with test_before_evict set to false
+    void MarkGoodWithoutTesting(const CService& addr, int64_t time);
 };
 
 #endif // BITCOIN_ADDRMAN_H

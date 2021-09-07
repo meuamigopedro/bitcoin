@@ -27,18 +27,22 @@ class CAddrManDeterministic : public CAddrMan
 {
 public:
     FuzzedDataProvider& m_fuzzed_data_provider;
+    FastRandomContext insecure_rand;
 
     explicit CAddrManDeterministic(std::vector<bool> asmap, FuzzedDataProvider& fuzzed_data_provider)
         : CAddrMan(std::move(asmap), /* deterministic */ true, /* consistency_check_ratio */ 0)
         , m_fuzzed_data_provider(fuzzed_data_provider)
     {
-        WITH_LOCK(cs, insecure_rand = FastRandomContext{ConsumeUInt256(fuzzed_data_provider)});
+        uint256 rand_seed = ConsumeUInt256(fuzzed_data_provider);
+        insecure_rand = FastRandomContext{rand_seed};
+        SetRandomContext(rand_seed);
     }
 
     /**
      * Generate a random address. Always returns a valid address.
      */
-    CNetAddr RandAddr() EXCLUSIVE_LOCKS_REQUIRED(cs)
+    // why did this have exclusive lock annotations?
+    CNetAddr RandAddr()
     {
         CNetAddr addr;
         if (m_fuzzed_data_provider.remaining_bytes() > 1 && m_fuzzed_data_provider.ConsumeBool()) {
@@ -78,8 +82,6 @@ public:
      */
     void Fill()
     {
-        LOCK(cs);
-
         // Add some of the addresses directly to the "tried" table.
 
         // 0, 1, 2, 3 corresponding to 0%, 100%, 50%, 33%
@@ -96,125 +98,17 @@ public:
             for (size_t j = 0; j < num_addresses; ++j) {
                 const auto addr = CAddress{CService{RandAddr(), 8333}, NODE_NETWORK};
                 const auto time_penalty = insecure_rand.randrange(100000001);
-#if 1
-                // 2.83 sec to fill.
-                if (n > 0 && mapInfo.size() % n == 0 && mapAddr.find(addr) == mapAddr.end()) {
-                    // Add to the "tried" table (if the bucket slot is free).
-                    const CAddrInfo dummy{addr, source};
-                    const int bucket = dummy.GetTriedBucket(nKey, m_asmap);
-                    const int bucket_pos = dummy.GetBucketPosition(nKey, false, bucket);
-                    if (vvTried[bucket][bucket_pos] == -1) {
-                        int id;
-                        CAddrInfo* addr_info = Create(addr, source, &id);
-                        vvTried[bucket][bucket_pos] = id;
-                        addr_info->fInTried = true;
-                        ++nTried;
-                    }
-                } else {
-                    // Add to the "new" table.
-                    Add_(addr, source, time_penalty);
+                Add({addr}, source, time_penalty);
+                if (n > 0 && size() % n == 0) {
+                    MarkGoodWithoutTesting(addr, GetTime());
                 }
-#else
-                // 261.91 sec to fill.
-                Add_(addr, source, time_penalty);
-                if (n > 0 && mapInfo.size() % n == 0) {
-                    Good_(addr, false, GetTime());
-                }
-#endif
                 // Add 10% of the addresses from more than one source.
                 if (insecure_rand.randrange(10) == 0 && prev_source.IsValid()) {
-                    Add_(addr, prev_source, time_penalty);
+                    Add({addr}, prev_source, time_penalty);
                 }
             }
             prev_source = source;
         }
-    }
-
-    /**
-     * Compare with another AddrMan.
-     * This compares:
-     * - the values in `mapInfo` (the keys aka ids are ignored)
-     * - vvNew entries refer to the same addresses
-     * - vvTried entries refer to the same addresses
-     */
-    bool operator==(const CAddrManDeterministic& other)
-    {
-        LOCK2(cs, other.cs);
-
-        if (mapInfo.size() != other.mapInfo.size() || nNew != other.nNew ||
-            nTried != other.nTried) {
-            return false;
-        }
-
-        // Check that all values in `mapInfo` are equal to all values in `other.mapInfo`.
-        // Keys may be different.
-
-        using CAddrInfoHasher = std::function<size_t(const CAddrInfo&)>;
-        using CAddrInfoEq = std::function<bool(const CAddrInfo&, const CAddrInfo&)>;
-
-        CNetAddrHash netaddr_hasher;
-
-        CAddrInfoHasher addrinfo_hasher = [&netaddr_hasher](const CAddrInfo& a) {
-            return netaddr_hasher(static_cast<CNetAddr>(a)) ^ netaddr_hasher(a.source) ^
-                   a.nLastSuccess ^ a.nAttempts ^ a.nRefCount ^ a.fInTried;
-        };
-
-        CAddrInfoEq addrinfo_eq = [](const CAddrInfo& lhs, const CAddrInfo& rhs) {
-            return static_cast<CNetAddr>(lhs) == static_cast<CNetAddr>(rhs) &&
-                   lhs.source == rhs.source && lhs.nLastSuccess == rhs.nLastSuccess &&
-                   lhs.nAttempts == rhs.nAttempts && lhs.nRefCount == rhs.nRefCount &&
-                   lhs.fInTried == rhs.fInTried;
-        };
-
-        using Addresses = std::unordered_set<CAddrInfo, CAddrInfoHasher, CAddrInfoEq>;
-
-        const size_t num_addresses{mapInfo.size()};
-
-        Addresses addresses{num_addresses, addrinfo_hasher, addrinfo_eq};
-        for (const auto& [id, addr] : mapInfo) {
-            addresses.insert(addr);
-        }
-
-        Addresses other_addresses{num_addresses, addrinfo_hasher, addrinfo_eq};
-        for (const auto& [id, addr] : other.mapInfo) {
-            other_addresses.insert(addr);
-        }
-
-        if (addresses != other_addresses) {
-            return false;
-        }
-
-        auto IdsReferToSameAddress = [&](int id, int other_id) EXCLUSIVE_LOCKS_REQUIRED(cs, other.cs) {
-            if (id == -1 && other_id == -1) {
-                return true;
-            }
-            if ((id == -1 && other_id != -1) || (id != -1 && other_id == -1)) {
-                return false;
-            }
-            return mapInfo.at(id) == other.mapInfo.at(other_id);
-        };
-
-        // Check that `vvNew` contains the same addresses as `other.vvNew`. Notice - `vvNew[i][j]`
-        // contains just an id and the address is to be found in `mapInfo.at(id)`. The ids
-        // themselves may differ between `vvNew` and `other.vvNew`.
-        for (size_t i = 0; i < ADDRMAN_NEW_BUCKET_COUNT; ++i) {
-            for (size_t j = 0; j < ADDRMAN_BUCKET_SIZE; ++j) {
-                if (!IdsReferToSameAddress(vvNew[i][j], other.vvNew[i][j])) {
-                    return false;
-                }
-            }
-        }
-
-        // Same for `vvTried`.
-        for (size_t i = 0; i < ADDRMAN_TRIED_BUCKET_COUNT; ++i) {
-            for (size_t j = 0; j < ADDRMAN_BUCKET_SIZE; ++j) {
-                if (!IdsReferToSameAddress(vvTried[i][j], other.vvTried[i][j])) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
     }
 };
 
@@ -317,5 +211,5 @@ FUZZ_TARGET_INIT(addrman_serdeser, initialize_addrman)
     addr_man1.Fill();
     data_stream << addr_man1;
     data_stream >> addr_man2;
-    assert(addr_man1 == addr_man2);
+    assert(addr_man1.CompareAddrman(addr_man2));
 }
