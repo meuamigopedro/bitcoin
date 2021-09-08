@@ -19,6 +19,7 @@
 #include <optional>
 #include <string>
 
+# if 0
 using namespace std::literals;
 
 class CAddrManSerializationMock : public CAddrMan
@@ -88,12 +89,16 @@ public:
         deterministic = makeDeterministic;
     }
 
+    // just overwritten to acquire lock first
+    // internal function only
+    // but used all over this test
     CAddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr)
     {
         LOCK(cs);
         return CAddrMan::Find(addr, pnId);
     }
 
+    // just overwritten to acquire lock first
     CAddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId = nullptr)
     {
         LOCK(cs);
@@ -134,21 +139,6 @@ public:
      }
 };
 
-static CNetAddr ResolveIP(const std::string& ip)
-{
-    CNetAddr addr;
-    BOOST_CHECK_MESSAGE(LookupHost(ip, addr, false), strprintf("failed to resolve: %s", ip));
-    return addr;
-}
-
-static CService ResolveService(const std::string& ip, uint16_t port = 0)
-{
-    CService serv;
-    BOOST_CHECK_MESSAGE(Lookup(ip, serv, port, false), strprintf("failed to resolve: %s:%i", ip, port));
-    return serv;
-}
-
-
 static std::vector<bool> FromBytes(const unsigned char* source, int vector_size) {
     std::vector<bool> result(vector_size);
     for (int byte_i = 0; byte_i < vector_size / 8; ++byte_i) {
@@ -160,21 +150,42 @@ static std::vector<bool> FromBytes(const unsigned char* source, int vector_size)
     return result;
 }
 
+#endif
+
+static CService ResolveService(const std::string& ip, uint16_t port = 0)
+{
+    CService serv;
+    BOOST_CHECK_MESSAGE(Lookup(ip, serv, port, false), strprintf("failed to resolve: %s:%i", ip, port));
+    return serv;
+}
+
+static CNetAddr ResolveIP(const std::string& ip)
+{
+    CNetAddr addr;
+    BOOST_CHECK_MESSAGE(LookupHost(ip, addr, false), strprintf("failed to resolve: %s", ip));
+    return addr;
+}
 
 BOOST_FIXTURE_TEST_SUITE(addrman_tests, BasicTestingSetup)
 
+// Uses Add, Select, size
+// Tests that Add increases size, duplicate IPs don't get added, and "reset"
+// works.
 BOOST_AUTO_TEST_CASE(addrman_simple)
 {
-    auto addrman = std::make_unique<CAddrManTest>();
+    std::vector<bool> asmap = std::vector<bool>();
+    auto addrman = std::make_unique<CAddrMan>(asmap, /* deterministic */ true, /* consistency_check_ratio */ 100);
 
     CNetAddr source = ResolveIP("252.2.2.2");
 
     // Test: Does Addrman respond correctly when empty.
+    // Select() returns an empty CAddress when AddrMan is empty
     BOOST_CHECK_EQUAL(addrman->size(), 0U);
     auto addr_null = std::get<0>(addrman->Select());
     BOOST_CHECK_EQUAL(addr_null.ToString(), "[::]:0");
 
     // Test: Does Addrman::Add work as expected.
+    // Add inserts an element, size increments, elements gets returned by Select
     CService addr1 = ResolveService("250.1.1.1", 8333);
     BOOST_CHECK(addrman->Add({CAddress(addr1, NODE_NONE)}, source));
     BOOST_CHECK_EQUAL(addrman->size(), 1U);
@@ -182,24 +193,27 @@ BOOST_AUTO_TEST_CASE(addrman_simple)
     BOOST_CHECK_EQUAL(addr_ret1.ToString(), "250.1.1.1:8333");
 
     // Test: Does IP address deduplication work correctly.
-    //  Expected dup IP should not be added.
+    // Expected dup IP should not be added.
     CService addr1_dup = ResolveService("250.1.1.1", 8333);
     BOOST_CHECK(!addrman->Add({CAddress(addr1_dup, NODE_NONE)}, source));
     BOOST_CHECK_EQUAL(addrman->size(), 1U);
 
-
     // Test: New table has one addr and we add a diff addr we should
-    //  have at least one addr.
+    // have at least one addr.
     // Note that addrman's size cannot be tested reliably after insertion, as
     // hash collisions may occur. But we can always be sure of at least one
     // success.
-
+    // Q: can this be handled with test determinism?
+    // Q: is this actually testing anything?
     CService addr2 = ResolveService("250.1.1.2", 8333);
     BOOST_CHECK(addrman->Add({CAddress(addr2, NODE_NONE)}, source));
     BOOST_CHECK(addrman->size() >= 1);
 
-    // Test: reset addrman and test AddrMan::Add multiple addresses works as expected
-    addrman = std::make_unique<CAddrManTest>();
+    // Test: reset addrman and test AddrMan::Add multiple addresses works as
+    // expected
+    // At this point this test is just checking that Add can do multiple at
+    // once
+    addrman = std::make_unique<CAddrMan>(asmap, /* deterministic */ true, /* consistency_check_ratio */ 100);
     std::vector<CAddress> vAddr;
     vAddr.push_back(CAddress(ResolveService("250.1.1.3", 8333), NODE_NONE));
     vAddr.push_back(CAddress(ResolveService("250.1.1.4", 8333), NODE_NONE));
@@ -207,35 +221,44 @@ BOOST_AUTO_TEST_CASE(addrman_simple)
     BOOST_CHECK(addrman->size() >= 1);
 }
 
+// Setup: add a IP address to AddrMan. construct another with same address &
+// different port
+// Test: Calling Add() OR Good() on addr #2 doesn't get added or change
+// existing addr
 BOOST_AUTO_TEST_CASE(addrman_ports)
 {
-    CAddrManTest addrman;
+    std::vector<bool> asmap = std::vector<bool>();
+    auto addrman = std::make_unique<CAddrMan>(asmap, /* deterministic */ true, /* consistency_check_ratio */ 100);
 
     CNetAddr source = ResolveIP("252.2.2.2");
 
-    BOOST_CHECK_EQUAL(addrman.size(), 0U);
+    BOOST_CHECK_EQUAL(addrman->size(), 0U);
 
     // Test 7; Addr with same IP but diff port does not replace existing addr.
     CService addr1 = ResolveService("250.1.1.1", 8333);
-    BOOST_CHECK(addrman.Add({CAddress(addr1, NODE_NONE)}, source));
-    BOOST_CHECK_EQUAL(addrman.size(), 1U);
+    BOOST_CHECK(addrman->Add({CAddress(addr1, NODE_NONE)}, source));
+    BOOST_CHECK_EQUAL(addrman->size(), 1U);
 
     CService addr1_port = ResolveService("250.1.1.1", 8334);
-    BOOST_CHECK(!addrman.Add({CAddress(addr1_port, NODE_NONE)}, source));
-    BOOST_CHECK_EQUAL(addrman.size(), 1U);
-    auto addr_ret2 = std::get<0>(addrman.Select());
+    BOOST_CHECK(!addrman->Add({CAddress(addr1_port, NODE_NONE)}, source));
+    BOOST_CHECK_EQUAL(addrman->size(), 1U);
+    auto addr_ret2 = std::get<0>(addrman->Select());
     BOOST_CHECK_EQUAL(addr_ret2.ToString(), "250.1.1.1:8333");
 
     // Test: Add same IP but diff port to tried table, it doesn't get added.
-    //  Perhaps this is not ideal behavior but it is the current behavior.
-    addrman.Good(CAddress(addr1_port, NODE_NONE));
-    BOOST_CHECK_EQUAL(addrman.size(), 1U);
-    bool newOnly = true;
-    auto addr_ret3 = std::get<0>(addrman.Select(newOnly));
+    // Perhaps this is not ideal behavior but it is the current behavior.
+
+    // Try to call Good on the alternative port, see that addrman size doesn't
+    // change.
+    // Call Select(newOnly=true), and see that the old IP is still there.
+    addrman->Good(CAddress(addr1_port, NODE_NONE));
+    BOOST_CHECK_EQUAL(addrman->size(), 1U);
+    auto addr_ret3 = std::get<0>(addrman->Select(/* newOnly */ true));
     BOOST_CHECK_EQUAL(addr_ret3.ToString(), "250.1.1.1:8333");
 }
 
 
+#if 0
 BOOST_AUTO_TEST_CASE(addrman_select)
 {
     CAddrManTest addrman;
@@ -1075,6 +1098,6 @@ BOOST_AUTO_TEST_CASE(caddrdb_read_corrupted)
     BOOST_CHECK(addrman2.size() == 0);
     BOOST_CHECK(!CAddrDB::Read(addrman2, ssPeers2));
 }
-
+# endif
 
 BOOST_AUTO_TEST_SUITE_END()
