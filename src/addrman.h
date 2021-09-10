@@ -6,17 +6,14 @@
 #ifndef BITCOIN_ADDRMAN_H
 #define BITCOIN_ADDRMAN_H
 
-#include <fs.h>
-#include <logging.h>
 #include <netaddress.h>
 #include <protocol.h>
-#include <sync.h>
 #include <timedata.h>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
-#include <set>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 /** Default for -checkaddrman */

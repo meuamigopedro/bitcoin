@@ -5,6 +5,13 @@
 #ifndef BITCOIN_ADDRMAN_IMPL_H
 #define BITCOIN_ADDRMAN_IMPL_H
 
+#include <addrman.h>
+#include <logging.h>
+
+#include <sync.h>
+#include <unordered_map>
+#include <unordered_set>
+
 /** Total number of buckets for tried addresses */
 static constexpr int32_t ADDRMAN_TRIED_BUCKET_COUNT_LOG2{8};
 static constexpr int ADDRMAN_TRIED_BUCKET_COUNT{1 << ADDRMAN_TRIED_BUCKET_COUNT_LOG2};

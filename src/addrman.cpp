@@ -3,20 +3,20 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-#include <addrman.h>
 #include <addrman_impl.h>
 
-#include <clientversion.h>
 #include <hash.h>
-#include <logging.h>
 #include <netaddress.h>
+#include <protocol.h>
+#include <random.h>
 #include <serialize.h>
 #include <streams.h>
+#include <timedata.h>
+#include <tinyformat.h>
+#include <uint256.h>
 
 #include <cmath>
 #include <optional>
-#include <unordered_map>
-#include <unordered_set>
 
 /** Over how many buckets entries with tried addresses from a single group (/16 for IPv4) are spread */
 static constexpr uint32_t ADDRMAN_TRIED_BUCKETS_PER_GROUP{8};
