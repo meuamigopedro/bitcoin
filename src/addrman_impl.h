@@ -10,7 +10,7 @@
  */
 class CAddrInfo : public CAddress
 {
-private:
+public:
     //! last try whatsoever by us (memory only)
     int64_t nLastTry{0};
 
@@ -34,11 +34,6 @@ private:
 
     //! position in vRandom
     mutable int nRandomPos{-1};
-
-    friend class CAddrMan;
-    friend class CAddrManDeterministic;
-
-public:
 
     SERIALIZE_METHODS(CAddrInfo, obj)
     {
