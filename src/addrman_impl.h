@@ -88,7 +88,7 @@ public:
     double GetChance(int64_t nNow = GetAdjustedTime()) const;
 };
 
-class CAddrMan::Impl
+class AddrMan::Impl
 {
 
 public:
@@ -151,8 +151,8 @@ public:
 
     const std::vector<bool>& GetAsmap() const;
 
-    friend class CAddrManTest;
-    friend class CAddrManDeterministic;
+    friend class AddrManTest;
+    friend class AddrManDeterministic;
 
 private:
     //! A mutex to protect the inner data structures.
