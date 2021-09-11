@@ -58,7 +58,7 @@ public:
         READWRITE(obj.source, obj.nLastSuccess, obj.nAttempts);
     }
 
-    AddrInfo(const CAddress &addrIn, const CNetAddr &addrSource) : CAddress(addrIn), source(addrSource)
+    AddrInfo(const CAddress& addrIn, const CNetAddr& addrSource) : CAddress(addrIn), source(addrSource)
     {
     }
 
@@ -67,19 +67,19 @@ public:
     }
 
     //! Calculate in which "tried" bucket this entry belongs
-    int GetTriedBucket(const uint256 &nKey, const std::vector<bool> &asmap) const;
+    int GetTriedBucket(const uint256& nKey, const std::vector<bool>& asmap) const;
 
     //! Calculate in which "new" bucket this entry belongs, given a certain source
-    int GetNewBucket(const uint256 &nKey, const CNetAddr& src, const std::vector<bool> &asmap) const;
+    int GetNewBucket(const uint256& nKey, const CNetAddr& src, const std::vector<bool>& asmap) const;
 
     //! Calculate in which "new" bucket this entry belongs, using its default source
-    int GetNewBucket(const uint256 &nKey, const std::vector<bool> &asmap) const
+    int GetNewBucket(const uint256& nKey, const std::vector<bool>& asmap) const
     {
         return GetNewBucket(nKey, source, asmap);
     }
 
     //! Calculate in which position of a bucket to store this entry.
-    int GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) const;
+    int GetBucketPosition(const uint256& nKey, bool fNew, int nBucket) const;
 
     //! Determine whether the statistics about this entry are bad enough so that it can just be deleted
     bool IsTerrible(int64_t nNow = GetAdjustedTime()) const;
@@ -124,29 +124,29 @@ public:
 
     size_t size() const EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    bool Add(const std::vector<CAddress> &vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
+    bool Add(const std::vector<CAddress>& vAddr, const CNetAddr& source, int64_t nTimePenalty = 0)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    void Good(const CService &addr, int64_t nTime = GetAdjustedTime())
+    void Good(const CService& addr, int64_t nTime = GetAdjustedTime())
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    void Attempt(const CService &addr, bool fCountFailure, int64_t nTime = GetAdjustedTime())
+    void Attempt(const CService& addr, bool fCountFailure, int64_t nTime = GetAdjustedTime())
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     void ResolveCollisions() EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     std::pair<CAddress, int64_t> SelectTriedCollision() EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    std::pair<CAddress, int64_t>  Select(bool newOnly = false) const
+    std::pair<CAddress, int64_t> Select(bool newOnly = false) const
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    void Connected(const CService &addr, int64_t nTime = GetAdjustedTime())
+    void Connected(const CService& addr, int64_t nTime = GetAdjustedTime())
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    void SetServices(const CService &addr, ServiceFlags nServices)
+    void SetServices(const CService& addr, ServiceFlags nServices)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     const std::vector<bool>& GetAsmap() const;
@@ -238,10 +238,10 @@ private:
     const std::vector<bool> m_asmap;
 
     //! Find an entry.
-    AddrInfo* Find(const CNetAddr& addr, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    AddrInfo* Find(const CNetAddr& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Create a new entry and add it to the internal data structures mapInfo, mapAddr and vRandom.
-    AddrInfo* Create(const CAddress &addr, const CNetAddr &addrSource, int *pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    AddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Swap two elements in vRandom.
     void SwapRandom(unsigned int nRandomPos1, unsigned int nRandomPos2) const EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -256,13 +256,13 @@ private:
     void ClearNew(int nUBucket, int nUBucketPos) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Mark an entry "good", possibly moving it from "new" to "tried".
-    void Good_(const CService &addr, bool test_before_evict, int64_t time) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void Good_(const CService& addr, bool test_before_evict, int64_t time) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Add an entry to the "new" table.
-    bool Add_(const CAddress &addr, const CNetAddr& source, int64_t nTimePenalty) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    bool Add_(const CAddress& addr, const CNetAddr& source, int64_t nTimePenalty) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Mark an entry as attempted to connect.
-    void Attempt_(const CService &addr, bool fCountFailure, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void Attempt_(const CService& addr, bool fCountFailure, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Select an address to connect to, if newOnly is set to true, only the new table is selected from.
     std::pair<CAddress, int64_t> Select_(bool newOnly) const EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -301,7 +301,7 @@ private:
     void Connected_(const CService& addr, int64_t nTime) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Update an entry's service bits.
-    void SetServices_(const CService &addr, ServiceFlags nServices) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void SetServices_(const CService& addr, ServiceFlags nServices) EXCLUSIVE_LOCKS_REQUIRED(cs);
 };
 
 #endif // BITCOIN_ADDRMAN_IMPL_H
