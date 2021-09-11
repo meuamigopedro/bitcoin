@@ -101,12 +101,12 @@ public:
                 // 2.83 sec to fill.
                 if (n > 0 && m_impl->mapInfo.size() % n == 0 && m_impl->mapAddr.find(addr) == m_impl->mapAddr.end()) {
                     // Add to the "tried" table (if the bucket slot is free).
-                    const CAddrInfo dummy{addr, source};
+                    const AddrInfo dummy{addr, source};
                     const int bucket = dummy.GetTriedBucket(m_impl->nKey, m_impl->m_asmap);
                     const int bucket_pos = dummy.GetBucketPosition(m_impl->nKey, false, bucket);
                     if (m_impl->vvTried[bucket][bucket_pos] == -1) {
                         int id;
-                        CAddrInfo* addr_info = m_impl->Create(addr, source, &id);
+                        AddrInfo* addr_info = m_impl->Create(addr, source, &id);
                         m_impl->vvTried[bucket][bucket_pos] = id;
                         addr_info->fInTried = true;
                         ++m_impl->nTried;
@@ -150,24 +150,24 @@ public:
         // Check that all values in `mapInfo` are equal to all values in `other.mapInfo`.
         // Keys may be different.
 
-        using CAddrInfoHasher = std::function<size_t(const CAddrInfo&)>;
-        using CAddrInfoEq = std::function<bool(const CAddrInfo&, const CAddrInfo&)>;
+        using AddrInfoHasher = std::function<size_t(const AddrInfo&)>;
+        using AddrInfoEq = std::function<bool(const AddrInfo&, const AddrInfo&)>;
 
         CNetAddrHash netaddr_hasher;
 
-        CAddrInfoHasher addrinfo_hasher = [&netaddr_hasher](const CAddrInfo& a) {
+        AddrInfoHasher addrinfo_hasher = [&netaddr_hasher](const AddrInfo& a) {
             return netaddr_hasher(static_cast<CNetAddr>(a)) ^ netaddr_hasher(a.source) ^
                    a.nLastSuccess ^ a.nAttempts ^ a.nRefCount ^ a.fInTried;
         };
 
-        CAddrInfoEq addrinfo_eq = [](const CAddrInfo& lhs, const CAddrInfo& rhs) {
+        AddrInfoEq addrinfo_eq = [](const AddrInfo& lhs, const AddrInfo& rhs) {
             return static_cast<CNetAddr>(lhs) == static_cast<CNetAddr>(rhs) &&
                    lhs.source == rhs.source && lhs.nLastSuccess == rhs.nLastSuccess &&
                    lhs.nAttempts == rhs.nAttempts && lhs.nRefCount == rhs.nRefCount &&
                    lhs.fInTried == rhs.fInTried;
         };
 
-        using Addresses = std::unordered_set<CAddrInfo, CAddrInfoHasher, CAddrInfoEq>;
+        using Addresses = std::unordered_set<AddrInfo, AddrInfoHasher, AddrInfoEq>;
 
         const size_t num_addresses{m_impl->mapInfo.size()};
 
