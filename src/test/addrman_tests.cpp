@@ -207,7 +207,7 @@ BOOST_AUTO_TEST_CASE(addrman_simple)
     // Q: is this actually testing anything?
     CService addr2 = ResolveService("250.1.1.2", 8333);
     BOOST_CHECK(addrman->Add({CAddress(addr2, NODE_NONE)}, source));
-    BOOST_CHECK(addrman->size() >= 1);
+    BOOST_CHECK_EQUAL(addrman->size(), 2);
 
     // Test: reset addrman and test AddrMan::Add multiple addresses works as
     // expected
