@@ -67,11 +67,12 @@ using namespace std::literals;
 //     }
 // };
 //
+// // Could be templated instead of requiring AddrManSerializationMock type
 // static CDataStream AddrmanToStream(const AddrManSerializationMock& _addrman)
 // {
-//     CDataStream ssPeersIn(SER_DISK, CLIENT_VERSION);
+//     CDataStream ssPeersIn(SER_DISK, CLIENT_VERSION); // where serlization ends up
 //     ssPeersIn << Params().MessageStart();
-//     ssPeersIn << _addrman;
+//     ssPeersIn << _addrman; // addrman serialized
 //     std::string str = ssPeersIn.str();
 //     std::vector<unsigned char> vchData(str.begin(), str.end());
 //     return CDataStream(vchData, SER_DISK, CLIENT_VERSION);
@@ -151,20 +152,23 @@ static CService ResolveService(const std::string& ip, uint16_t port = 0)
 }
 
 
-// static std::vector<bool> FromBytes(const unsigned char* source, int vector_size) {
-//     std::vector<bool> result(vector_size);
-//     for (int byte_i = 0; byte_i < vector_size / 8; ++byte_i) {
-//         unsigned char cur_byte = source[byte_i];
-//         for (int bit_i = 0; bit_i < 8; ++bit_i) {
-//             result[byte_i * 8 + bit_i] = (cur_byte >> bit_i) & 1;
-//         }
-//     }
-//     return result;
-// }
+ static std::vector<bool> FromBytes(const unsigned char* source, int vector_size) {
+     std::vector<bool> result(vector_size);
+     for (int byte_i = 0; byte_i < vector_size / 8; ++byte_i) {
+         unsigned char cur_byte = source[byte_i];
+         for (int bit_i = 0; bit_i < 8; ++bit_i) {
+             result[byte_i * 8 + bit_i] = (cur_byte >> bit_i) & 1;
+         }
+     }
+     return result;
+ }
 
 
 BOOST_FIXTURE_TEST_SUITE(addrman_tests, BasicTestingSetup)
 
+// Uses Add, Select, size
+// Tests that Add increases size, duplicate IPs don't get added, and "reset"
+// works.
 BOOST_AUTO_TEST_CASE(addrman_simple)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -209,6 +213,10 @@ BOOST_AUTO_TEST_CASE(addrman_simple)
     BOOST_CHECK(addrman->size() >= 1);
 }
 
+// Setup: add a IP address to AddrMan. construct another with same address &
+// different port
+// Test: Calling Add() OR Good() on addr #2 doesn't get added or change
+// existing addr
 BOOST_AUTO_TEST_CASE(addrman_ports)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -237,7 +245,9 @@ BOOST_AUTO_TEST_CASE(addrman_ports)
     BOOST_CHECK_EQUAL(addr_ret3.ToString(), "250.1.1.1:8333");
 }
 
-
+// tests Select() with newOnly t & f based on moving one addr through new ->
+// tried.  then adds 3 addrs to new, 3 to tried, with misc port numbers. calls
+// Call Select() 20 times & checks unique port numbers
 BOOST_AUTO_TEST_CASE(addrman_select)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -264,8 +274,8 @@ BOOST_AUTO_TEST_CASE(addrman_select)
 
     BOOST_CHECK_EQUAL(addrman->size(), 1U);
 
-
     // Add three addresses to new table.
+    // Kinda random port & source overlap vs different
     CService addr2 = ResolveService("250.3.1.1", 8333);
     CService addr3 = ResolveService("250.3.2.2", 9999);
     CService addr4 = ResolveService("250.3.3.3", 9999);
@@ -297,6 +307,9 @@ BOOST_AUTO_TEST_CASE(addrman_select)
     BOOST_CHECK_EQUAL(ports.size(), 3U);
 }
 
+// Add a buncha addrs, cause a collision on the new table, see that size
+// doesn't increment. Add another, see that size does increment.
+// Uses size() & Add()
 BOOST_AUTO_TEST_CASE(addrman_new_collisions)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -304,9 +317,6 @@ BOOST_AUTO_TEST_CASE(addrman_new_collisions)
     CNetAddr source = ResolveIP("252.2.2.2");
 
     uint32_t num_addrs{0};
-
-    BOOST_CHECK_EQUAL(addrman->size(), num_addrs);
-
     while (num_addrs < 22) {  // Magic number! 250.1.1.1 - 250.1.1.22 do not collide with deterministic key = 1
         CService addr = ResolveService("250.1.1." + ToString(++num_addrs));
         BOOST_CHECK(addrman->Add({CAddress(addr, NODE_NONE)}, source));
@@ -326,6 +336,9 @@ BOOST_AUTO_TEST_CASE(addrman_new_collisions)
     BOOST_CHECK_EQUAL(addrman->size(), num_addrs - collisions);
 }
 
+// Add 64 addrs to tried table using Add() & Good(). Check size.
+// Add another using Add(), and see size doesn't increment.
+// Add another and see that size does increment.
 BOOST_AUTO_TEST_CASE(addrman_tried_collisions)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -333,9 +346,6 @@ BOOST_AUTO_TEST_CASE(addrman_tried_collisions)
     CNetAddr source = ResolveIP("252.2.2.2");
 
     uint32_t num_addrs{0};
-
-    BOOST_CHECK_EQUAL(addrman->size(), num_addrs);
-
     while (num_addrs < 64) {  // Magic number! 250.1.1.1 - 250.1.1.64 do not collide with deterministic key = 1
         CService addr = ResolveService("250.1.1." + ToString(++num_addrs));
         BOOST_CHECK(addrman->Add({CAddress(addr, NODE_NONE)}, source));
@@ -357,6 +367,8 @@ BOOST_AUTO_TEST_CASE(addrman_tried_collisions)
 }
 
 /*
+// Add()s 3 addresses, checks that Find() returns expected ip addresses, and
+// different port numbers too.
 BOOST_AUTO_TEST_CASE(addrman_find)
 {
     AddrManTest addrman;
@@ -390,6 +402,8 @@ BOOST_AUTO_TEST_CASE(addrman_find)
     BOOST_CHECK_EQUAL(info3->ToString(), "251.255.2.1:8333");
 }
 
+// make an AddrInfo using Create() and check ToString()
+// then see that addrman.Find() returns the same ToString() ip address
 BOOST_AUTO_TEST_CASE(addrman_create)
 {
     AddrManTest addrman;
@@ -409,7 +423,9 @@ BOOST_AUTO_TEST_CASE(addrman_create)
     BOOST_CHECK_EQUAL(info2->ToString(), "250.1.2.1:8333");
 }
 
-
+// Add an address using Create, check size is 1.
+// Then Delete using nId, check size is 0.
+// See that find doesn't return anything for that CAddress.
 BOOST_AUTO_TEST_CASE(addrman_delete)
 {
     AddrManTest addrman;
@@ -431,6 +447,12 @@ BOOST_AUTO_TEST_CASE(addrman_delete)
 }
 */
 
+// Insert 5 addrs into addrman using Add()
+// Check return values of GetAddr based on different params
+// Promote 2 addrs to tried table
+// Check return values of GetAddr are same as before
+// Insert lots of addrs into addrman (2048 total, 256 tried)
+// Check size of GetAddr vector & size of addrman
 BOOST_AUTO_TEST_CASE(addrman_getaddr)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -441,6 +463,7 @@ BOOST_AUTO_TEST_CASE(addrman_getaddr)
     std::vector<CAddress> vAddr1 = addrman->GetAddr(/* max_addresses */ 0, /* max_pct */ 0, /* network */ std::nullopt);
     BOOST_CHECK_EQUAL(vAddr1.size(), 0U);
 
+    // Construct 5 addrs into addrman
     CAddress addr1 = CAddress(ResolveService("250.250.2.1", 8333), NODE_NONE);
     addr1.nTime = GetAdjustedTime(); // Set time so isTerrible = false
     CAddress addr2 = CAddress(ResolveService("250.251.2.2", 9999), NODE_NONE);
@@ -481,17 +504,18 @@ BOOST_AUTO_TEST_CASE(addrman_getaddr)
         if (i % 8 == 0)
             addrman->Good(addr);
     }
-    std::vector<CAddress> vAddr = addrman->GetAddr(/* max_addresses */ 2500, /* max_pct */ 23, /* network */ std::nullopt);
+    int vAddr_size = addrman->GetAddr(/* max_addresses */ 2500, /* max_pct */ 23, /* network */ std::nullopt).size();
 
-    size_t percent23 = (addrman->size() * 23) / 100;
-    BOOST_CHECK_EQUAL(vAddr.size(), percent23);
-    BOOST_CHECK_EQUAL(vAddr.size(), 461U);
+    BOOST_CHECK_EQUAL(vAddr_size, (addrman->size() * 23) / 100);
     // (Addrman.size() < number of addresses added) due to address collisions.
     BOOST_CHECK_EQUAL(addrman->size(), 2006U);
 }
 
-
 /*
+
+// needs info.GetTriedBucket to test
+// checks that GetTriedBucket is different for different keys
+// also tests info.GetKey is different for AddrInfos with 2 different ports
 BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket_legacy)
 {
     AddrManTest addrman;
@@ -500,7 +524,6 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket_legacy)
     CAddress addr2 = CAddress(ResolveService("250.1.1.1", 9999), NODE_NONE);
 
     CNetAddr source1 = ResolveIP("250.1.1.1");
-
 
     AddrInfo info1 = AddrInfo(addr1, source1);
 
@@ -547,6 +570,8 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket_legacy)
     BOOST_CHECK_EQUAL(buckets.size(), 160U);
 }
 
+// Uses GetNewBucket to test expectation of which bucket an AddrInfo is in
+// Tests GetNewBucket with different nKeys results in different values
 BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket_legacy)
 {
     AddrManTest addrman;
@@ -633,7 +658,6 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_tried_bucket)
     CAddress addr2 = CAddress(ResolveService("250.1.1.1", 9999), NODE_NONE);
 
     CNetAddr source1 = ResolveIP("250.1.1.1");
-
 
     AddrInfo info1 = AddrInfo(addr1, source1);
 
@@ -761,19 +785,44 @@ BOOST_AUTO_TEST_CASE(caddrinfo_get_new_bucket)
 }
 */
 
+// GetBucketAndEntry loops through the whole new table until it finds a nId match,
+// then returns the bucket & position it was found at (or -1s)
+//
+// adds an addr into one addrman. serializes & deserializes into 2nd with same
+// asmap. checks that GetBucketAndEntry(addr) returns same value on both.
+//
+// serializes addrman with asmap, deserializes into an addrman without an asmap.
+// checks that the bucketAndEntry values are different for the addr between the
+// two.
+//
+// serializes addrman without asmap, deserializes into an addrman with asmap.
+// checks they are different. also some random checks that this initial one
+// matches up with the original one at the start of the test
+//
+// test where serializing into addrman with an asmap now causes the two addrs
+// to be in the same bucket, but different positions:
+// add 2 addresses to an addrman without an asmap
+// check that the new table positions for them are different (both bucket &
+// position)
+// deserialize addrman
+// serialize into an addrman that has an asmap
+// check that the two addrs are in the same bucket, but different positions
+// Q: I don't really get the point of this. this is mostly testing the test
+// determinism?
+//
+// improvement: use structured bindings
 /*
 BOOST_AUTO_TEST_CASE(addrman_serialization)
 {
     std::vector<bool> asmap1 = FromBytes(asmap_raw, sizeof(asmap_raw) * 8);
 
-    auto addrman_asmap1 = std::make_unique<AddrManTest>(true, asmap1);
-    auto addrman_asmap1_dup = std::make_unique<AddrManTest>(true, asmap1);
-    auto addrman_noasmap = std::make_unique<AddrManTest>();
+    auto addrman_asmap1 = std::make_unique<AddrMan>(asmap1, true, 100);
+    auto addrman_asmap1_dup = std::make_unique<AddrMan>(asmap1, true, 100);
+    auto addrman_noasmap = std::make_unique<AddrMan>(std::vector<bool>(), true, 100);
     CDataStream stream(SER_NETWORK, PROTOCOL_VERSION);
 
     CAddress addr = CAddress(ResolveService("250.1.1.1"), NODE_NONE);
     CNetAddr default_source;
-
 
     addrman_asmap1->Add({addr}, default_source);
 
@@ -789,6 +838,8 @@ BOOST_AUTO_TEST_CASE(addrman_serialization)
     BOOST_CHECK(bucketAndEntry_asmap1.first == bucketAndEntry_asmap1_dup.first);
     BOOST_CHECK(bucketAndEntry_asmap1.second == bucketAndEntry_asmap1_dup.second);
 
+    // =============
+
     // deserializing asmaped peers.dat to non-asmaped addrman
     stream << *addrman_asmap1;
     stream >> *addrman_noasmap;
@@ -797,9 +848,11 @@ BOOST_AUTO_TEST_CASE(addrman_serialization)
     BOOST_CHECK(bucketAndEntry_asmap1.first != bucketAndEntry_noasmap.first);
     BOOST_CHECK(bucketAndEntry_asmap1.second != bucketAndEntry_noasmap.second);
 
+    // =============
+
     // deserializing non-asmaped peers.dat to asmaped addrman
-    addrman_asmap1 = std::make_unique<AddrManTest>(true, asmap1);
-    addrman_noasmap = std::make_unique<AddrManTest>();
+    addrman_asmap1 = std::make_unique<AddrMan>(asmap1, true, 100);
+    addrman_noasmap = std::make_unique<AddrMan>(std::vector<bool>(), true, 100);
     addrman_noasmap->Add({addr}, default_source);
     stream << *addrman_noasmap;
     stream >> *addrman_asmap1;
@@ -809,9 +862,11 @@ BOOST_AUTO_TEST_CASE(addrman_serialization)
     BOOST_CHECK(bucketAndEntry_asmap1_deser.first == bucketAndEntry_asmap1_dup.first);
     BOOST_CHECK(bucketAndEntry_asmap1_deser.second == bucketAndEntry_asmap1_dup.second);
 
+    // =============
+
     // used to map to different buckets, now maps to the same bucket.
-    addrman_asmap1 = std::make_unique<AddrManTest>(true, asmap1);
-    addrman_noasmap = std::make_unique<AddrManTest>();
+    addrman_asmap1 = std::make_unique<AddrMan>(asmap1, true, 100);
+    addrman_noasmap = std::make_unique<AddrMan>(std::vector<bool>(), true, 100);
     CAddress addr1 = CAddress(ResolveService("250.1.1.1"), NODE_NONE);
     CAddress addr2 = CAddress(ResolveService("250.2.1.1"), NODE_NONE);
     addrman_noasmap->Add({addr, addr2}, default_source);
@@ -828,6 +883,11 @@ BOOST_AUTO_TEST_CASE(addrman_serialization)
 }
 */
 
+// Create 4 aaddresses, put 2 in new & 2 in tried
+// Serialize addrman into `stream`
+// go into `stream` and manually edit
+// deserialize addrman
+// check that the size is 2
 BOOST_AUTO_TEST_CASE(remove_invalid)
 {
     // Confirm that invalid addresses are ignored in unserialization.
@@ -869,6 +929,12 @@ BOOST_AUTO_TEST_CASE(remove_invalid)
     BOOST_CHECK_EQUAL(addrman->size(), 2);
 }
 
+// test SelectTriedCollision doesn't do anything...... lol
+// -> called on empty addrman returns an empty CAddress
+// add 22 addresses to tried table, check addrman size increments & no
+// collisions returned by SelectTriedCollision call good on all those
+// addresses, check size stays the same & no collisions returned by
+// SelectTriedCollision
 BOOST_AUTO_TEST_CASE(addrman_selecttriedcollision)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -901,6 +967,20 @@ BOOST_AUTO_TEST_CASE(addrman_selecttriedcollision)
 
 }
 
+// Add 35 addresses to the tried table,
+// on each step: check size increments & SelectTriedCollision returns empty
+// Now a collision. Add another address to the tried table, see that size
+// incremented, and that SelectTriedCollision returns the expected ip address
+// Call ResolveCollisions, see that SelectTriedCollision now returns empty
+//
+// Do it all again
+// Add 22 more addresses to the tried table
+// on each step: check size increments & SelectTriedCollision returns empty
+// Create another collision. Add address to tried, see that size incremented,
+// and SelectTriedCollision returns expected ip address
+// Create a second collision. Add another address to tried, see that size
+// didn't change. Check that SelectTriedCollision doesn't return empty. Call
+// ResolveCollisions & see that SelectTriedCollision is now empty.
 BOOST_AUTO_TEST_CASE(addrman_noevict)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
@@ -957,14 +1037,29 @@ BOOST_AUTO_TEST_CASE(addrman_noevict)
     BOOST_CHECK(addrman->SelectTriedCollision().first.ToString() == "[::]:0");
 }
 
+// Add 35 addresses to tried table. use size & SelectTriedCollision == empty to
+// ensure no collisions.
+// Add 36th address to tried. See that size increments and SelectTriedCollision
+// returns expected ip address.
+// So far exactly the same as addrman_noevict.
+//
+// Calls SimConnFail function (now inlined) to make the address terrible
+// -> calls Good on address
+// -> calls Attempt on address
+//
+// Calls ResolveCollisions
+// Sees that SelectTriedCollision is empty
+// To test if they wewre swapped, Add & Good (addr), which was 36. Then see that
+// SelectTriedCollision is empty.
+// Q: wait why doesn't this conflict anymore? I think 36 was in there, then you
+// add 36?
+//
+// Try to insert 19. See that Add fails. Call Good on it anyways.  See that
+// SelectTriedCollision returns 36. Call ResolveCollisions, see that
+// SelectTriedCollision is empty.
 BOOST_AUTO_TEST_CASE(addrman_evictionworks)
 {
     auto addrman = std::make_unique<AddrMan>(std::vector<bool>(), /* makeDeterministic */ true, /* consistency_check_ratio */ 100);
-
-    BOOST_CHECK(addrman->size() == 0);
-
-    // Empty addrman should return blank addrman info.
-    BOOST_CHECK(addrman->SelectTriedCollision().first.ToString() == "[::]:0");
 
     // Add 35 addresses
     CNetAddr source = ResolveIP("252.2.2.2");
@@ -1014,9 +1109,20 @@ BOOST_AUTO_TEST_CASE(addrman_evictionworks)
     BOOST_CHECK(addrman->SelectTriedCollision().first.ToString() == "[::]:0");
 }
 
-
+// Uses the Lookup function to assign values to CService objects called addr1-3
+// Add addresses to new table
+// Calls AddrmanToStream
+// try to deserialize into addrman1 and catch if there's an exception & check
+// size.
+// And then do a more direct call to ReadFromStream and see addrman size??
+//
+// Q: I don't really get what its doing differently than the simpler
+// (de)serialize tests
+//
 // BOOST_AUTO_TEST_CASE(load_addrman)
 // {
+//     // is just a normal addrman, but in a way that can use AddrmanToStream
+//     // because it inherits from the serialization mock
 //     AddrManUncorrupted addrmanUncorrupted;
 //
 //     CService addr1, addr2, addr3;
@@ -1059,7 +1165,7 @@ BOOST_AUTO_TEST_CASE(addrman_evictionworks)
 //     BOOST_CHECK(addrman2.size() == 3);
 // }
 //
-//
+// // Do more weird ReadFromStream stuff and see exception / failures
 // BOOST_AUTO_TEST_CASE(load_addrman_corrupted)
 // {
 //     AddrManCorrupted addrmanCorrupted;
