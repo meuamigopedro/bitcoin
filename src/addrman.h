@@ -22,6 +22,28 @@
 /** Default for -checkaddrman */
 static constexpr int32_t DEFAULT_ADDRMAN_CONSISTENCY_CHECKS{0};
 
+struct AddressPosition {
+    // Whether the address is on the new or tried table in AddrMan.
+    bool tried{false};
+
+    // Addresses on the tried table should always have a multiplicity of 1.
+    // Addresses on the new table can have multiplicity of 1 -
+    // ADDRMAN_NEW_BUCKETS_PER_ADDRESS
+    int multiplicity{0};
+
+    // If the address is on the new table, bucket & position should be
+    // populated based on the first source who sent the address.
+    // In certain edge cases, this may not be where the address is currently
+    // located.
+    int bucket{0};
+    int position{0};
+
+    bool operator==(AddressPosition other) {
+        return std::tie(tried, multiplicity, bucket, position) ==
+               std::tie(other.tried, other.multiplicity, other.bucket, other.position);
+    }
+};
+
 /**
  * Extended statistics about a CAddress
  */
@@ -269,6 +291,15 @@ public:
         SetServices_(addr, nServices);
         Check();
     }
+
+    /*
+     * Test-only function
+     *
+     * Finds the address record in AddrMan and returns information about its
+     * position(s). If the address is not found, returns an empty
+     * AddressPosition struct with multiplicity set to 0.
+     */
+    AddressPosition FindEntry(const CAddress& addr);
 
     const std::vector<bool>& GetAsmap() const { return m_asmap; }
 

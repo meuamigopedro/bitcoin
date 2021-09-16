@@ -1009,3 +1009,29 @@ CAddrInfo CAddrMan::SelectTriedCollision_()
 
     return mapInfo[id_old];
 }
+
+AddressPosition CAddrMan::FindEntry(const CAddress& addr)
+{
+    int nId;
+    LOCK(cs);
+    CAddrInfo* addr_info_temp = Find(addr, &nId);
+
+    AddressPosition entry;
+    if (!addr_info_temp) { return entry; }
+    const CAddrInfo& addr_info = *addr_info_temp;
+
+    Check_();
+
+    if(addr_info.fInTried) {
+        entry.tried = true;
+        entry.multiplicity = 1;
+        entry.bucket = addr_info.GetTriedBucket(nKey, m_asmap);
+        entry.position = addr_info.GetBucketPosition(nKey, false, entry.bucket);
+        return entry;
+    }
+
+    entry.multiplicity = addr_info.nRefCount;
+    entry.bucket = addr_info.GetNewBucket(nKey, m_asmap);
+    entry.position = addr_info.GetBucketPosition(nKey, true, entry.bucket);
+    return entry;
+}
