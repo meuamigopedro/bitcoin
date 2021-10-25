@@ -276,6 +276,8 @@ private:
     //! Count the number of occurrences of entries with this address (including aliases).
     int CountAddr(const CNetAddr& addr) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    AddrManIndex::index<ByAddress>::type::iterator Insert(AddrInfo info, bool alias) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 

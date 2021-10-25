@@ -416,6 +416,17 @@ int AddrManImpl::CountAddr(const CNetAddr& addr) const
     return std::distance(it, it_end);
 }
 
+AddrManImpl::AddrManIndex::index<AddrManImpl::ByAddress>::type::iterator AddrManImpl::Insert(AddrInfo info, bool alias)
+{
+    info.Rebucket(nKey, m_asmap);
+    info.nRandomPos = (alias) ? -1 : vRandom.size();
+
+    UpdateStat(info, 1);
+    auto it = m_index.insert(std::move(info)).first;
+    //if (!alias) vRandom.push_back(it);
+    return it;
+}
+
 AddrInfo* AddrManImpl::Find(const CService& addr, int* pnId)
 {
     AssertLockHeld(cs);
