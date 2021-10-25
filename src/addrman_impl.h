@@ -278,6 +278,9 @@ private:
 
     AddrManIndex::index<ByAddress>::type::iterator Insert(AddrInfo info, bool alias) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    template<typename Iter, typename Fun>
+    void Modify(Iter it, Fun fun) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 

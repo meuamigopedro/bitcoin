@@ -427,6 +427,17 @@ AddrManImpl::AddrManIndex::index<AddrManImpl::ByAddress>::type::iterator AddrMan
     return it;
 }
 
+template<typename Iter, typename Fun>
+void AddrManImpl::Modify(Iter it, Fun fun)
+{
+    UpdateStat(*it, -1);
+    m_index.modify(m_index.project<ByAddress>(it), [&](AddrInfo& info) {
+            fun(info);
+            info.Rebucket(nKey, m_asmap);
+            });
+    UpdateStat(*it, 1);
+}
+
 AddrInfo* AddrManImpl::Find(const CService& addr, int* pnId)
 {
     AssertLockHeld(cs);
