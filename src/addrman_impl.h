@@ -86,6 +86,7 @@ public:
     {
     }
 
+    // TODO: inspect. why are these added? is rule of 5 applicable here?
     AddrInfo& operator=(const AddrInfo&) = default;
     AddrInfo(const AddrInfo&) = default;
 
@@ -207,6 +208,7 @@ private:
         result_type operator()(const AddrInfo& info) const { return {info.fInTried, info.m_bucket, info.m_bucketpos}; }
     };
 
+    // TODO: consider moving this to global scope?
     using AddrManIndex = boost::multi_index_container<
         AddrInfo,
         boost::multi_index::indexed_by<
@@ -269,8 +271,11 @@ private:
     // would be re-bucketed accordingly.
     const std::vector<bool> m_asmap;
 
+    // TODO: consider making inc a bool instead
+    // TODO: consider renaming to UpdateAddrmanCounter
     /** If info is not an alias, increment the relevant counter (new or tried)
      * by inc. */
+    // TODO: understand what action should couple with this for callers
     void UpdateStat(const AddrInfo& info, int inc) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Count the number of occurrences of entries with this address (including aliases).
