@@ -273,6 +273,9 @@ private:
      * by inc. */
     void UpdateStat(const AddrInfo& info, int inc) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    //! Count the number of occurrences of entries with this address (including aliases).
+    int CountAddr(const CNetAddr& addr) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 

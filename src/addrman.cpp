@@ -407,6 +407,15 @@ void AddrManImpl::UpdateStat(const AddrInfo& info, int inc)
     info.fInTried ? nTried += inc : nNew += inc;
 }
 
+int AddrManImpl::CountAddr(const CNetAddr& addr) const
+{
+    AssertLockHeld(cs);
+    auto it = m_index.get<ByAddress>().lower_bound(std::pair<const CNetAddr&, bool>(addr, false));
+    if (it == m_index.get<ByAddress>().end()) return 0;
+    auto it_end = m_index.get<ByAddress>().upper_bound(std::pair<const CNetAddr&, bool>(addr, true));
+    return std::distance(it, it_end);
+}
+
 AddrInfo* AddrManImpl::Find(const CService& addr, int* pnId)
 {
     AssertLockHeld(cs);
