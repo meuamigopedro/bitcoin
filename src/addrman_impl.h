@@ -12,6 +12,8 @@
 #include <sync.h>
 #include <uint256.h>
 
+#include <boost/multi_index_container.hpp>
+#include <boost/multi_index/ordered_index.hpp>
 #include <cstdint>
 #include <optional>
 #include <set>
@@ -57,8 +59,18 @@ public:
     //! in tried set? (memory only)
     bool fInTried{false};
 
-    //! position in vRandom
+    //! Multiple copies of the same entry (same CNetAddr parent) are allowed for (only in
+    //! new, not in tried). In that case, only one of them will have nRandomPos set; all
+    //! the rest are known as "aliases", and have nRandomPos==-1. CAddress & statistics
+    //! are not kept for aliases (the non-alias AddrInfo object's fields for that are
+    //! used by all).
     mutable int nRandomPos{-1};
+
+    //! Which bucket this entry is in (tried bucket for fInTried, new bucket otherwise).
+    int m_bucket;
+
+    //! Which position in that bucket this entry occupies.
+    int m_bucketpos;
 
     SERIALIZE_METHODS(AddrInfo, obj)
     {
@@ -74,6 +86,9 @@ public:
     {
     }
 
+    AddrInfo& operator=(const AddrInfo&) = default;
+    AddrInfo(const AddrInfo&) = default;
+
     //! Calculate in which "tried" bucket this entry belongs
     int GetTriedBucket(const uint256 &nKey, const std::vector<bool> &asmap) const;
 
@@ -88,6 +103,8 @@ public:
 
     //! Calculate in which position of a bucket to store this entry.
     int GetBucketPosition(const uint256 &nKey, bool fNew, int nBucket) const;
+
+    void Rebucket(const uint256& key, const std::vector<bool> &asmap);
 
     //! Determine whether the statistics about this entry are bad enough so that it can just be deleted
     bool IsTerrible(int64_t nNow = GetAdjustedTime()) const;
@@ -172,6 +189,34 @@ private:
     //! field which was 32 historically.
     //! @note Don't increment this. Increment `lowest_compatible` in `Serialize()` instead.
     static constexpr uint8_t INCOMPATIBILITY_BASE = 32;
+
+    struct ByAddress {};
+    struct ByBucket {};
+
+    struct ByAddressExtractor
+    {
+        using result_type = std::pair<const CNetAddr&, bool>;
+        result_type operator()(const AddrInfo& info) const { return {info, info.nRandomPos == -1}; }
+    };
+
+    using ByBucketView = std::tuple<bool, int, int>;
+
+    struct ByBucketExtractor
+    {
+        using result_type = ByBucketView;
+        result_type operator()(const AddrInfo& info) const { return {info.fInTried, info.m_bucket, info.m_bucketpos}; }
+    };
+
+    using AddrManIndex = boost::multi_index_container<
+        AddrInfo,
+        boost::multi_index::indexed_by<
+            boost::multi_index::ordered_non_unique<boost::multi_index::tag<ByAddress>, ByAddressExtractor>,
+            boost::multi_index::ordered_non_unique<boost::multi_index::tag<ByBucket>, ByBucketExtractor>
+        >
+    >;
+
+    // The actual data table
+    AddrManIndex m_index GUARDED_BY(cs);
 
     //! last used nId
     int nIdCount GUARDED_BY(cs){0};

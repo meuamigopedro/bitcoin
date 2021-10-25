@@ -62,6 +62,12 @@ int AddrInfo::GetBucketPosition(const uint256& nKey, bool fNew, int nBucket) con
     return hash1 % ADDRMAN_BUCKET_SIZE;
 }
 
+void AddrInfo::Rebucket(const uint256& key, const std::vector<bool> &asmap)
+{
+    m_bucket = fInTried ? GetTriedBucket(key, asmap) : GetNewBucket(key, asmap);
+    m_bucketpos = GetBucketPosition(key, !fInTried, m_bucket);
+}
+
 bool AddrInfo::IsTerrible(int64_t nNow) const
 {
     if (nLastTry && nLastTry >= nNow - 60) // never remove things tried in the last minute
