@@ -401,6 +401,12 @@ void AddrManImpl::Unserialize(Stream& s_)
     }
 }
 
+void AddrManImpl::UpdateStat(const AddrInfo& info, int inc)
+{
+    if (info.nRandomPos == -1) return;
+    info.fInTried ? nTried += inc : nNew += inc;
+}
+
 AddrInfo* AddrManImpl::Find(const CService& addr, int* pnId)
 {
     AssertLockHeld(cs);

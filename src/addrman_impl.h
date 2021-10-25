@@ -269,6 +269,10 @@ private:
     // would be re-bucketed accordingly.
     const std::vector<bool> m_asmap;
 
+    /** If info is not an alias, increment the relevant counter (new or tried)
+     * by inc. */
+    void UpdateStat(const AddrInfo& info, int inc) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
