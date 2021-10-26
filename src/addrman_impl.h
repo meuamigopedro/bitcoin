@@ -283,6 +283,9 @@ private:
 
     void EraseInner(AddrManIndex::index<ByAddress>::type::iterator it) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    template<typename It>
+    void Erase(It it) EXCLUSIVE_LOCKS_REQUIRED(cs) { EraseInner(m_index.project<ByAddress>(it)); }
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
