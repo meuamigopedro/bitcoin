@@ -281,6 +281,8 @@ private:
     template<typename Iter, typename Fun>
     void Modify(Iter it, Fun fun) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    void EraseInner(AddrManIndex::index<ByAddress>::type::iterator it) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 

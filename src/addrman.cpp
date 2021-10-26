@@ -438,6 +438,31 @@ void AddrManImpl::Modify(Iter it, Fun fun)
     UpdateStat(*it, 1);
 }
 
+void AddrManImpl::EraseInner(AddrManImpl::AddrManIndex::index<ByAddress>::type::iterator it)
+{
+    AssertLockHeld(cs);
+
+    if (it->nRandomPos != -1) {
+        // In case the entry being deleted has an alias, we don't delete the requested one, but
+        // the alias instead. The alias' source IP is moved to the actual entry however, so
+        // it is preserved.
+        auto it_alias = m_index.get<ByAddress>().find(std::make_pair<const CNetAddr&, bool>(*it, true));
+        if (it_alias != m_index.get<ByAddress>().end()) {
+            //if (m_tried_collisions.count(&*it_alias)) m_tried_collisions.insert(&*it);
+            Modify(it, [&](AddrInfo& info) { info.source = it_alias->source; });
+            it = it_alias;
+        } else {
+            // Actually deleting a non-alias entry; remove it from vRandom.
+            //SwapRandom(it->nRandomPos, vRandom.size() - 1);
+            //vRandom.pop_back();
+        }
+    }
+
+    //m_tried_collisions.erase(&*it);
+    UpdateStat(*it, -1);
+    m_index.erase(it);
+}
+
 AddrInfo* AddrManImpl::Find(const CService& addr, int* pnId)
 {
     AssertLockHeld(cs);
