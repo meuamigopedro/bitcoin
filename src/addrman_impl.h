@@ -229,10 +229,10 @@ private:
     //! find an nId based on its network address and port.
     std::unordered_map<CService, int, CServiceHash> mapAddr GUARDED_BY(cs);
 
-    //! randomly-ordered vector of all nIds
+    //! randomly-ordered vector of all (non-alias) entries
     //! This is mutable because it is unobservable outside the class, so any
     //! changes to it (even in const methods) are also unobservable.
-    mutable std::vector<int> vRandom GUARDED_BY(cs);
+    mutable std::vector<AddrManIndex::index<ByAddress>::type::iterator> vRandom GUARDED_BY(cs);
 
     // number of "tried" entries
     int nTried GUARDED_BY(cs){0};
@@ -250,7 +250,7 @@ private:
     int64_t nLastGood GUARDED_BY(cs){1};
 
     //! Holds addrs inserted into tried table that collide with existing entries. Test-before-evict discipline used to resolve these collisions.
-    std::set<int> m_tried_collisions;
+    std::set<const AddrInfo*> m_tried_collisions;
 
     /** Perform consistency checks every m_consistency_check_ratio operations (if non-zero). */
     const int32_t m_consistency_check_ratio;
@@ -291,23 +291,11 @@ private:
     template<typename It>
     void Erase(It it) EXCLUSIVE_LOCKS_REQUIRED(cs) { EraseInner(m_index.project<ByAddress>(it)); }
 
-    //! Find an entry.
-    AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    //! Create a new entry and add it to the internal data structures mapInfo, mapAddr and vRandom.
-    AddrInfo* Create(const CAddress& addr, const CNetAddr& addrSource, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     //! Swap two elements in vRandom.
     void SwapRandom(unsigned int nRandomPos1, unsigned int nRandomPos2) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    //! Delete an entry. It must not be in tried, and have refcount 0.
-    void Delete(int nId) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
-    //! Clear a position in a "new" table. This is the only place where entries are actually deleted.
-    void ClearNew(int nUBucket, int nUBucketPos) EXCLUSIVE_LOCKS_REQUIRED(cs);
-
     //! Move an entry from the "new" table(s) to the "tried" table
-    void MakeTried(AddrInfo& info, int nId) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void MakeTried(AddrManIndex::index<ByAddress>::type::iterator it) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     void Good_(const CService& addr, bool test_before_evict, int64_t time) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
