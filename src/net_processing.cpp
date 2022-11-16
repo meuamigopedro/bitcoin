@@ -108,8 +108,8 @@ static constexpr auto NONPREF_PEER_TX_DELAY{2s};
 static constexpr auto OVERLOADED_PEER_TX_DELAY{2s};
 /** How long to wait before downloading a transaction from an additional peer */
 static constexpr auto GETDATA_TX_INTERVAL{60s};
-/** Limit to avoid sending big packets (getdata, notfound). Not used in processing incoming GETDATA for compatibility */
-static const unsigned int MAX_GETDATA_SZ = 1000;
+/** The maximum number of records to send per message (addr, getdata, notfound).*/
+static constexpr size_t MAX_MSG_TO_SEND{1000};
 /** Number of blocks that can be requested at any given time from a single peer. */
 static const int MAX_BLOCKS_IN_TRANSIT_PER_PEER = 16;
 /** Time during which a peer must stall block download progress before being disconnected. */
@@ -172,15 +172,13 @@ static constexpr uint32_t MAX_GETCFILTERS_SIZE = 1000;
 static constexpr uint32_t MAX_GETCFHEADERS_SIZE = 2000;
 /** the maximum percentage of addresses from our addrman to return in response to a getaddr message. */
 static constexpr size_t MAX_PCT_ADDR_TO_SEND = 23;
-/** The maximum number of address records permitted in an ADDR message. */
-static constexpr size_t MAX_ADDR_TO_SEND{1000};
 /** The maximum rate of address records we're willing to process on average. Can be bypassed using
  *  the NetPermissionFlags::Addr permission. */
 static constexpr double MAX_ADDR_RATE_PER_SECOND{0.1};
 /** The soft limit of the address processing token bucket (the regular MAX_ADDR_RATE_PER_SECOND
- *  based increments won't go above this, but the MAX_ADDR_TO_SEND increment following GETADDR
+ *  based increments won't go above this, but the MAX_MSG_TO_SEND increment following GETADDR
  *  is exempt from this limit). */
-static constexpr size_t MAX_ADDR_PROCESSING_TOKEN_BUCKET{MAX_ADDR_TO_SEND};
+static constexpr size_t MAX_ADDR_PROCESSING_TOKEN_BUCKET{MAX_MSG_TO_SEND};
 /** The compactblocks version we support. See BIP 152. */
 static constexpr uint64_t CMPCTBLOCKS_VERSION{2};
 
@@ -314,7 +312,7 @@ struct Peer {
         return WITH_LOCK(m_tx_relay_mutex, return m_tx_relay.get());
     };
 
-    /** A vector of addresses to send to the peer, limited to MAX_ADDR_TO_SEND. */
+    /** A vector of addresses to send to the peer, limited to MAX_MSG_TO_SEND. */
     std::vector<CAddress> m_addrs_to_send GUARDED_BY(NetEventsInterface::g_msgproc_mutex);
 
     /** A vector of notfounds to send to the peer, limited to MAX_PEER_TX_ANNOUNCEMENTS. */
@@ -1046,7 +1044,7 @@ void PeerManagerImpl::AddAddressKnown(Peer& peer, const CAddress& addr)
 
 void PeerManagerImpl::PushNotFound(Peer& peer, CNode& node, const CInv& inv)
 {
-    if (peer.m_notfounds_to_send.size() >= MAX_GETDATA_SZ) {
+    if (peer.m_notfounds_to_send.size() >= MAX_MSG_TO_SEND) {
         const CNetMsgMaker msg_maker(node.GetCommonVersion());
         m_connman.PushMessage(&node, msg_maker.Make(NetMsgType::NOTFOUND, peer.m_notfounds_to_send));
         peer.m_notfounds_to_send.clear();
@@ -1061,7 +1059,7 @@ void PeerManagerImpl::PushAddress(Peer& peer, const CAddress& addr, FastRandomCo
     // added after addresses were pushed.
     assert(peer.m_addr_known);
     if (addr.IsValid() && !peer.m_addr_known->contains(addr.GetKey()) && IsAddrCompatible(peer, addr)) {
-        if (peer.m_addrs_to_send.size() >= MAX_ADDR_TO_SEND) {
+        if (peer.m_addrs_to_send.size() >= MAX_MSG_TO_SEND) {
             peer.m_addrs_to_send[insecure_rand.randrange(peer.m_addrs_to_send.size())] = addr;
         } else {
             peer.m_addrs_to_send.push_back(addr);
@@ -3343,9 +3341,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // Get recent addresses
             m_connman.PushMessage(&pfrom, CNetMsgMaker(greatest_common_version).Make(NetMsgType::GETADDR));
             peer->m_getaddr_sent = true;
-            // When requesting a getaddr, accept an additional MAX_ADDR_TO_SEND addresses in response
+            // When requesting a getaddr, accept an additional MAX_MSG_TO_SEND addresses in response
             // (bypassing the MAX_ADDR_PROCESSING_TOKEN_BUCKET limit).
-            peer->m_addr_token_bucket += MAX_ADDR_TO_SEND;
+            peer->m_addr_token_bucket += MAX_MSG_TO_SEND;
         }
 
         if (!pfrom.IsInboundConn()) {
@@ -3575,7 +3573,7 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             return;
         }
 
-        if (vAddr.size() > MAX_ADDR_TO_SEND)
+        if (vAddr.size() > MAX_MSG_TO_SEND)
         {
             Misbehaving(*peer, 20, strprintf("%s message size = %u", msg_type, vAddr.size()));
             return;
@@ -4574,9 +4572,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         peer->m_addrs_to_send.clear();
         std::vector<CAddress> vAddr;
         if (pfrom.HasPermission(NetPermissionFlags::Addr)) {
-            vAddr = m_connman.GetAddresses(MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND, /*network=*/std::nullopt);
+            vAddr = m_connman.GetAddresses(MAX_MSG_TO_SEND, MAX_PCT_ADDR_TO_SEND, /*network=*/std::nullopt);
         } else {
-            vAddr = m_connman.GetAddresses(pfrom, MAX_ADDR_TO_SEND, MAX_PCT_ADDR_TO_SEND);
+            vAddr = m_connman.GetAddresses(pfrom, MAX_MSG_TO_SEND, MAX_PCT_ADDR_TO_SEND);
         }
         FastRandomContext insecure_rand;
         for (const CAddress &addr : vAddr) {
@@ -5194,10 +5192,10 @@ void PeerManagerImpl::MaybeSendAddr(CNode& node, Peer& peer, std::chrono::micros
 
     peer.m_next_addr_send = GetExponentialRand(current_time, AVG_ADDRESS_BROADCAST_INTERVAL);
 
-    if (!Assume(peer.m_addrs_to_send.size() <= MAX_ADDR_TO_SEND)) {
+    if (!Assume(peer.m_addrs_to_send.size() <= MAX_MSG_TO_SEND)) {
         // Should be impossible since we always check size before adding to
         // m_addrs_to_send. Recover by trimming the vector.
-        peer.m_addrs_to_send.resize(MAX_ADDR_TO_SEND);
+        peer.m_addrs_to_send.resize(MAX_MSG_TO_SEND);
     }
 
     // Remove addr records that the peer already knows about, and add new
@@ -5819,7 +5817,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                 LogPrint(BCLog::NET, "Requesting %s %s peer=%d\n", gtxid.IsWtxid() ? "wtx" : "tx",
                     gtxid.GetHash().ToString(), pto->GetId());
                 vGetData.emplace_back(gtxid.IsWtxid() ? MSG_WTX : (MSG_TX | GetFetchFlags(*peer)), gtxid.GetHash());
-                if (vGetData.size() >= MAX_GETDATA_SZ) {
+                if (vGetData.size() >= MAX_MSG_TO_SEND) {
                     m_connman.PushMessage(pto, msgMaker.Make(NetMsgType::GETDATA, vGetData));
                     vGetData.clear();
                 }
