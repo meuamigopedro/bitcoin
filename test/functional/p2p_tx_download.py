@@ -8,10 +8,12 @@ Test transaction download behavior
 
 from test_framework.messages import (
     CInv,
+    MSG_BLOCK,
     MSG_TX,
     MSG_TYPE_MASK,
     MSG_WTX,
     msg_inv,
+    msg_getdata,
     msg_notfound,
     tx_from_hex,
 )
@@ -32,6 +34,10 @@ class TestP2PConn(P2PInterface):
     def __init__(self, wtxidrelay=True):
         super().__init__(wtxidrelay=wtxidrelay)
         self.tx_getdata_count = 0
+        self.tx_last_notfound_count = 0
+
+    def on_notfound(self, message):
+        self.tx_last_notfound_count = len(message.vec)
 
     def on_getdata(self, message):
         for i in message.inv:
@@ -254,6 +260,45 @@ class TxDownloadTest(BitcoinTestFramework):
         self.log.info('Check that spurious notfound is ignored')
         self.nodes[0].p2ps[0].send_message(msg_notfound(vec=[CInv(MSG_TX, 1)]))
 
+    def send_messages(self, peer, messages):
+        tmsgs = b''
+        for message in messages:
+            tmsgs += peer.build_message(message)
+            peer._log_message("send", message)
+        return peer.send_raw_message(tmsgs)
+
+    def test_notfound_batching(self):
+        self.log.info('Check that notfound messages get batched')
+        peer = self.nodes[0].add_p2p_connection(TestP2PConn())
+
+        self.log.info('Test notfounds with a single getdata message with txns and blocks interspersed')
+        self.send_messages(peer, [
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(10)]
+                        + [CInv(t=MSG_BLOCK, h=9999)]
+                        + [CInv(t=MSG_WTX, h=wtxid) for wtxid in range(30, 40)]
+                        + [CInv(t=MSG_BLOCK, h=9998)]
+                        + [CInv(t=MSG_WTX, h=wtxid) for wtxid in range(20, 30)])])
+
+        peer.wait_until(lambda: peer.tx_last_notfound_count == 30)
+
+        self.log.info('Test notfounds with two getdata messages with interspersed txns and blocks')
+        self.send_messages(peer, [
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(10)]
+                        + [CInv(t=MSG_BLOCK, h=9999)]
+                        + [CInv(t=MSG_WTX, h=wtxid) for wtxid in range(20, 30)]),
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(30, 35)])])
+
+        peer.wait_until(lambda: peer.tx_last_notfound_count == 25)
+
+        self.log.info('Test notfounds with multiple txn getdata messages')
+        self.send_messages(peer, [
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(1)]),
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(1, 2)]),
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(3, 13)]),
+            msg_getdata([CInv(t=MSG_WTX, h=wtxid) for wtxid in range(20, 30)])])
+
+        peer.wait_until(lambda: peer.tx_last_notfound_count == 22)
+
     def run_test(self):
         # Run tests without mocktime that only need one peer-connection first, to avoid restarting the nodes
         self.test_expiry_fallback()
@@ -265,6 +310,7 @@ class TxDownloadTest(BitcoinTestFramework):
         self.test_txid_inv_delay(True)
         self.test_large_inv_batch()
         self.test_spurious_notfound()
+        self.test_notfound_batching()
 
         # Run each test against new bitcoind instances, as setting mocktimes has long-term effects on when
         # the next trickle relay event happens.

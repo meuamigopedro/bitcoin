@@ -5835,7 +5835,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
     } // release cs_main
 
     // Message: notfound
-    if (!peer->m_notfounds_to_send.empty() && current_time > peer->m_last_notfounds_to_send + 300ms) {
+    if (!peer->m_notfounds_to_send.empty() && current_time > peer->m_last_notfounds_to_send + 1s) {
         m_connman.PushMessage(pto, msgMaker.Make(NetMsgType::NOTFOUND, peer->m_notfounds_to_send));
         peer->m_notfounds_to_send.clear();
     }
