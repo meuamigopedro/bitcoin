@@ -103,6 +103,13 @@ public:
     size_t size() const;
 
     /**
+    * Return the number of (unique) addresses, optionally filtered by network
+    * and/or addrman table (new if true, tried if false).
+    * If any of the optional args are nullopt, don't filter with respect to it.
+    */
+    size_t size(std::optional<Network> net, std::optional<bool> in_new) const;
+
+    /**
      * Attempt to add one or more addresses to addrman's new table.
      *
      * @param[in] vAddr           Address records to attempt to add.

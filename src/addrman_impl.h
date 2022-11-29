@@ -114,6 +114,8 @@ public:
 
     size_t size() const EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
+    size_t size(std::optional<Network> net, std::optional<bool> in_new) const EXCLUSIVE_LOCKS_REQUIRED(!cs);
+
     bool Add(const std::vector<CAddress>& vAddr, const CNetAddr& source, std::chrono::seconds time_penalty)
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
@@ -215,6 +217,9 @@ private:
     /** Reference to the netgroup manager. netgroupman must be constructed before addrman and destructed after. */
     const NetGroupManager& m_netgroupman;
 
+    /** Number of entries in addrman per network and new/tried table. */
+    std::unordered_map<Network, std::pair<size_t, size_t>> m_map_counts GUARDED_BY(cs);
+
     //! Find an entry.
     AddrInfo* Find(const CService& addr, int* pnId = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
@@ -256,6 +261,8 @@ private:
     std::pair<CAddress, NodeSeconds> SelectTriedCollision_() EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     std::optional<AddressPosition> FindAddressEntry_(const CAddress& addr) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
+    size_t size_(std::optional<Network> net, std::optional<bool> in_new) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     //! Consistency check, taking into account m_consistency_check_ratio.
     //! Will std::abort if an inconsistency is detected.
