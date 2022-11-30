@@ -970,6 +970,12 @@ private:
     void RecordBytesSent(uint64_t bytes) EXCLUSIVE_LOCKS_REQUIRED(!m_total_bytes_sent_mutex);
 
     /**
+     Return networks for which we have no addresses in addrman and therefore
+     may require loading fixed seeds.
+     */
+    std::vector<Network> GetRelevantFixedSeedNetworks() const;
+
+    /**
      * Return vector of current BLOCK_RELAY peers.
      */
     std::vector<CAddress> GetCurrentBlockRelayOnlyConns() const;
