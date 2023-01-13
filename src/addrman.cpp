@@ -974,19 +974,20 @@ size_t AddrManImpl::size_(std::optional<Network> net, std::optional<bool> in_new
 {
     AssertLockHeld(cs);
 
-    if (!net.has_value()) {
-        if (!in_new.has_value()) {
-            return nNew + nTried;
-        } else {
+    if (!net) {
+        if (in_new.has_value()) {
             return *in_new ? nNew : nTried;
+        } else {
+            return nNew + nTried;
         }
     }
+
     if (auto it = m_map_counts.find(*net); it != m_map_counts.end()) {
         auto entry = it->second;
-        if (!in_new.has_value()) {
-            return entry.first + entry.second;
-        } else {
+        if (in_new.has_value()) {
             return *in_new ? entry.first : entry.second;
+        } else {
+            return entry.first + entry.second;
         }
     }
     return 0;
