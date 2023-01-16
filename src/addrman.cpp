@@ -714,13 +714,23 @@ void AddrManImpl::Attempt_(const CService& addr, bool fCountFailure, NodeSeconds
     }
 }
 
-std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly) const
+std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly, std::optional<Network> network) const
 {
     AssertLockHeld(cs);
 
     if (vRandom.empty()) return {};
-
     if (newOnly && nNew == 0) return {};
+
+    // if network has a value & we have 0 addrs for that network, return empty
+    if (network) {
+        // network isn't on network_counts
+        auto it = m_network_counts.find(*network);
+        if (it == m_network_counts.end()) return {};
+
+        auto network_counts = it->second;
+        if (newOnly && network_counts.n_new == 0) return {};
+        if ((network_counts.n_new + network_counts.n_tried) == 0) return {};
+    }
 
     // Use a 50% chance for choosing between tried and new table entries.
     if (!newOnly &&
@@ -735,7 +745,16 @@ std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly) const
             // and looping around.
             int i;
             for (i = 0; i < ADDRMAN_BUCKET_SIZE; ++i) {
-                if (vvTried[nKBucket][(nKBucketPos + i) % ADDRMAN_BUCKET_SIZE] != -1) break;
+                auto nId = vvTried[nKBucket][(nKBucketPos + i) % ADDRMAN_BUCKET_SIZE];
+                if (nId != -1) {
+                    if (network) {
+                        const auto it{mapInfo.find(nId)};
+                        const auto info{it->second};
+                        if (info.GetNetwork() == *network) break;
+                    } else {
+                        break;
+                    }
+                }
             }
             // If the bucket is entirely empty, start over with a (likely) different one.
             if (i == ADDRMAN_BUCKET_SIZE) continue;
@@ -763,7 +782,16 @@ std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly) const
             // and looping around.
             int i;
             for (i = 0; i < ADDRMAN_BUCKET_SIZE; ++i) {
-                if (vvNew[nUBucket][(nUBucketPos + i) % ADDRMAN_BUCKET_SIZE] != -1) break;
+                auto nId = vvNew[nUBucket][(nUBucketPos + i) % ADDRMAN_BUCKET_SIZE];
+                if (nId != -1) {
+                    if (network) {
+                        const auto it{mapInfo.find(nId)};
+                        const auto info{it->second};
+                        if (info.GetNetwork() == *network) break;
+                    } else {
+                        break;
+                    }
+                }
             }
             // If the bucket is entirely empty, start over with a (likely) different one.
             if (i == ADDRMAN_BUCKET_SIZE) continue;
@@ -1164,11 +1192,11 @@ std::pair<CAddress, NodeSeconds> AddrManImpl::SelectTriedCollision()
     return ret;
 }
 
-std::pair<CAddress, NodeSeconds> AddrManImpl::Select(bool newOnly) const
+std::pair<CAddress, NodeSeconds> AddrManImpl::Select(bool newOnly, std::optional<Network> network) const
 {
     LOCK(cs);
     Check();
-    auto addrRet = Select_(newOnly);
+    auto addrRet = Select_(newOnly, network);
     Check();
     return addrRet;
 }
@@ -1262,9 +1290,9 @@ std::pair<CAddress, NodeSeconds> AddrMan::SelectTriedCollision()
     return m_impl->SelectTriedCollision();
 }
 
-std::pair<CAddress, NodeSeconds> AddrMan::Select(bool newOnly) const
+std::pair<CAddress, NodeSeconds> AddrMan::Select(bool newOnly, std::optional<Network> network) const
 {
-    return m_impl->Select(newOnly);
+    return m_impl->Select(newOnly, network);
 }
 
 std::vector<CAddress> AddrMan::GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const

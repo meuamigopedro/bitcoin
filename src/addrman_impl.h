@@ -127,7 +127,7 @@ public:
 
     std::pair<CAddress, NodeSeconds> SelectTriedCollision() EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
-    std::pair<CAddress, NodeSeconds> Select(bool newOnly) const
+    std::pair<CAddress, NodeSeconds> Select(bool newOnly, std::optional<Network> network) const
         EXCLUSIVE_LOCKS_REQUIRED(!cs);
 
     std::vector<CAddress> GetAddr(size_t max_addresses, size_t max_pct, std::optional<Network> network) const
@@ -251,7 +251,7 @@ private:
 
     void Attempt_(const CService& addr, bool fCountFailure, NodeSeconds time) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    std::pair<CAddress, NodeSeconds> Select_(bool newOnly) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::pair<CAddress, NodeSeconds> Select_(bool newOnly, std::optional<Network> network) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     std::vector<CAddress> GetAddr_(size_t max_addresses, size_t max_pct, std::optional<Network> network) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 

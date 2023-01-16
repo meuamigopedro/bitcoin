@@ -192,6 +192,49 @@ BOOST_AUTO_TEST_CASE(addrman_select)
     BOOST_CHECK_EQUAL(ports.size(), 3U);
 }
 
+BOOST_AUTO_TEST_CASE(addrman_select_by_network)
+{
+    auto addrman = std::make_unique<AddrMan>(EMPTY_NETGROUPMAN, DETERMINISTIC, GetCheckRatio(m_node));
+
+    // add ipv4 address to the new table
+    CNetAddr source = ResolveIP("252.2.2.2");
+    CService addr1 = ResolveService("250.1.1.1", 8333);
+    BOOST_CHECK(addrman->Add({CAddress(addr1, NODE_NONE)}, source));
+
+    // try selecting for different networks
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_IPV4).first.ToString(), "250.1.1.1:8333");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_IPV6).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_ONION).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_I2P).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_CJDNS).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false).first.ToString(), "250.1.1.1:8333");
+
+    // add I2P address to the new table
+    CService i2p_addr;
+    i2p_addr.SetSpecial("udhdrtrcetjm5sxzskjyr5ztpeszydbh4dpl3pl4utgqqw2v4jna.b32.i2p");
+    BOOST_CHECK(addrman->Add({CAddress(i2p_addr, NODE_NONE)}, source));
+
+    // try selecting for different networks
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_IPV4).first.ToString(), "250.1.1.1:8333");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_IPV6).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_ONION).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_I2P).first.ToString(), "udhdrtrcetjm5sxzskjyr5ztpeszydbh4dpl3pl4utgqqw2v4jna.b32.i2p:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_CJDNS).first.ToString(), "[::]:0");
+
+    // bump I2P address to tried table
+    BOOST_CHECK(addrman->Good(CAddress(i2p_addr, NODE_NONE)));
+
+    // try selecting new vs tried
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ true, NET_I2P).first.ToString(), "[::]:0");
+    BOOST_CHECK_EQUAL(addrman->Select(/*newOnly*/ false, NET_I2P).first.ToString(), "udhdrtrcetjm5sxzskjyr5ztpeszydbh4dpl3pl4utgqqw2v4jna.b32.i2p:0");
+}
+
+BOOST_AUTO_TEST_CASE(select_by_network_stress_test)
+{
+    // have a BUNCH of ipv4 addresses with one I2P, then select I2P
+    // add a patch to timestamp it
+}
+
 BOOST_AUTO_TEST_CASE(addrman_new_collisions)
 {
     auto addrman = std::make_unique<AddrMan>(EMPTY_NETGROUPMAN, DETERMINISTIC, GetCheckRatio(m_node));
