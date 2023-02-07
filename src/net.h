@@ -893,6 +893,12 @@ public:
     /** Return true if we should disconnect the peer for failing an inactivity check. */
     bool ShouldRunInactivityChecks(const CNode& node, std::chrono::seconds now) const;
 
+    /** Return the number of outbound-full-relay and manual connections to a network.
+    *
+    *   @param[in] net    Which network to count. Clearnet (IPv4 and IPv6) are treated as one network.
+    */
+    int GetFullOutboundAndManualCount(Network net) const;
+
 private:
     struct ListenSocket {
     public:
