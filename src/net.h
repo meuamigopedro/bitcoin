@@ -908,6 +908,8 @@ public:
     /** Return true if we should disconnect the peer for failing an inactivity check. */
     bool ShouldRunInactivityChecks(const CNode& node, std::chrono::seconds now) const;
 
+    bool MultipleManualOrFullOutboundConns(Network net);
+
 private:
     struct ListenSocket {
     public:
