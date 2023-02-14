@@ -1627,6 +1627,24 @@ int CConnman::GetFullOutboundAndManualCount(Network net) const
     return outbound_peers;
 }
 
+bool CConnman::MaybePickPreferredNetwork(std::optional<Network>& network)
+{
+    std::vector<Network> preferred_networks;
+    for (int n = 0; n < NET_MAX; n++) {
+        enum Network net = (enum Network)n;
+        if (net == NET_UNROUTABLE || net == NET_INTERNAL) continue;
+        if (IsReachable(net) && GetFullOutboundAndManualCount(net) == 0 && addrman.Size(net) != 0) {
+            preferred_networks.push_back(net);
+        }
+    }
+    if (preferred_networks.size() > 0) {
+        Shuffle(preferred_networks.begin(), preferred_networks.end(), FastRandomContext());
+        network = preferred_networks.back();
+        return true;
+    }
+    return false;
+}
+
 void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
 {
     AssertLockNotHeld(m_unused_i2p_sessions_mutex);
@@ -1658,6 +1676,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
     // Minimum time before next feeler connection (in microseconds).
     auto next_feeler = GetExponentialRand(start, FEELER_INTERVAL);
     auto next_extra_block_relay = GetExponentialRand(start, EXTRA_BLOCK_RELAY_ONLY_PEER_INTERVAL);
+    auto next_extra_network_peer{GetExponentialRand(start, EXTRA_NETWORK_PEER_INTERVAL)};
     const bool dnsseed = gArgs.GetBoolArg("-dnsseed", DEFAULT_DNSSEED);
     bool add_fixed_seeds = gArgs.GetBoolArg("-fixedseeds", DEFAULT_FIXEDSEEDS);
 
@@ -1769,6 +1788,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         auto now = GetTime<std::chrono::microseconds>();
         bool anchor = false;
         bool fFeeler = false;
+        std::optional<Network> preferred_net;
 
         // Determine what type of connection to open. Opening
         // BLOCK_RELAY connections to addresses from anchors.dat gets the highest
@@ -1818,6 +1838,17 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
             next_feeler = GetExponentialRand(now, FEELER_INTERVAL);
             conn_type = ConnectionType::FEELER;
             fFeeler = true;
+        } else if (nOutboundFullRelay == m_max_outbound_full_relay &&
+                   m_max_outbound_full_relay == MAX_OUTBOUND_FULL_RELAY_CONNECTIONS &&
+                   now > next_extra_network_peer &&
+                   MaybePickPreferredNetwork(preferred_net)) {
+            // Full outbound connection management: Attempt to get at least one
+            // outbound peer from each reachable network by making extra connections
+            // and then protecting "only" peers from a network during outbound eviction.
+            // This is not attempted if the user changed -maxconnections to a value
+            // so low that less than MAX_OUTBOUND_FULL_RELAY_CONNECTIONS are made,
+            // to prevent interactions with otherwise protected outbound peers.
+            next_extra_network_peer = GetExponentialRand(now, EXTRA_NETWORK_PEER_INTERVAL);
         } else {
             // skip to next iteration of while loop
             continue;
@@ -1871,7 +1902,10 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                 }
             } else {
                 // Not a feeler
-                std::tie(addr, addr_last_try) = addrman.Select();
+                // If preferred_net has a value set, pick an extra outbound
+                // peer from that network. The eviction logic in net_processing
+                // ensures that a peer from another network will be evicted.
+                std::tie(addr, addr_last_try) = addrman.Select(false, preferred_net);
             }
 
             // Require outbound connections, other than feelers, to be to distinct network groups
