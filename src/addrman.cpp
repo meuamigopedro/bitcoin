@@ -58,9 +58,9 @@ int AddrInfo::GetNewBucket(const uint256& nKey, const CNetAddr& src, const NetGr
     return hash2 % ADDRMAN_NEW_BUCKET_COUNT;
 }
 
-int AddrInfo::GetBucketPosition(const uint256& nKey, bool fNew, int nBucket) const
+int AddrInfo::GetBucketPosition(const uint256& nKey, bool fNew, int bucket) const
 {
-    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? uint8_t{'N'} : uint8_t{'K'}) << nBucket << GetKey()).GetCheapHash();
+    uint64_t hash1 = (CHashWriter(SER_GETHASH, 0) << nKey << (fNew ? uint8_t{'N'} : uint8_t{'K'}) << bucket << GetKey()).GetCheapHash();
     return hash1 % ADDRMAN_BUCKET_SIZE;
 }
 
@@ -736,18 +736,18 @@ std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly) const
         bucket_count = ADDRMAN_NEW_BUCKET_COUNT;
     }
 
-    double fChanceFactor = 1.0;
+    double chance_factor = 1.0;
     while (1) {
         // Pick a bucket, and an initial position in that bucket.
-        int nBucket = insecure_rand.randrange(bucket_count);
-        int nBucketPos = insecure_rand.randrange(ADDRMAN_BUCKET_SIZE);
+        int bucket = insecure_rand.randrange(bucket_count);
+        int initial_position = insecure_rand.randrange(ADDRMAN_BUCKET_SIZE);
 
         // Iterate over the positions of that bucket, starting at the initial one,
         // and looping around.
         int i;
         for (i = 0; i < ADDRMAN_BUCKET_SIZE; ++i) {
-            int position = (nBucketPos + i) % ADDRMAN_BUCKET_SIZE;
-            int node_id = LookupAddrmanEntry(search_tried, nBucket, position);
+            int position = (initial_position + i) % ADDRMAN_BUCKET_SIZE;
+            int node_id = LookupAddrmanEntry(search_tried, bucket, position);
             if (node_id != -1) break;
         }
 
@@ -755,14 +755,14 @@ std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly) const
         if (i == ADDRMAN_BUCKET_SIZE) continue;
 
         // Find the entry to return.
-        int position = (nBucketPos + i) % ADDRMAN_BUCKET_SIZE;
-        int nId = LookupAddrmanEntry(search_tried, nBucket, position);
+        int position = (initial_position + i) % ADDRMAN_BUCKET_SIZE;
+        int nId = LookupAddrmanEntry(search_tried, bucket, position);
         const auto it_found{mapInfo.find(nId)};
         assert(it_found != mapInfo.end());
         const AddrInfo& info{it_found->second};
 
-        // With probability GetChance() * fChanceFactor, return the entry.
-        if (insecure_rand.randbits(30) < fChanceFactor * info.GetChance() * (1 << 30)) {
+        // With probability GetChance() * chance_factor, return the entry.
+        if (insecure_rand.randbits(30) < chance_factor * info.GetChance() * (1 << 30)) {
             std::string table_name;
             search_tried ? table_name = "tried" : table_name = "new";
             LogPrint(BCLog::ADDRMAN, "Selected %s from %s\n", info.ToStringAddrPort(), table_name);
@@ -770,7 +770,7 @@ std::pair<CAddress, NodeSeconds> AddrManImpl::Select_(bool newOnly) const
         }
 
         // Otherwise start over with a (likely) different bucket, and increased chance factor.
-        fChanceFactor *= 1.2;
+        chance_factor *= 1.2;
     }
 }
 
