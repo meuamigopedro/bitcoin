@@ -1627,8 +1627,35 @@ int CConnman::GetFullOutboundAndManualCount(Network net)
     return outbound_peers;
 }
 
+// note: case statement skips IPV6 because in ordinary node operations, both
+// IPV4 & IPV6 would default on & the current version of the code treats them
+// as a combined "clearnet"
+bool CConnman::SupportsMultipleNetworks() const
+{
+    int count = 0;
+    for (int n = 0; n < NET_MAX; n++) {
+        enum Network net = (enum Network)n;
+        switch (net) {
+            case NET_UNROUTABLE:
+            case NET_IPV6:
+            case NET_INTERNAL:
+            case NET_MAX:
+                continue;
+            case NET_IPV4:
+            case NET_ONION:
+            case NET_I2P:
+            case NET_CJDNS:
+                if (IsReachable(net)) { count++; }
+        }
+    }
+
+    return count > 1;
+}
+
 bool CConnman::MaybePickPreferredNetwork(std::optional<Network>& network)
 {
+    if (!SupportsMultipleNetworks()) { return false; }
+
     std::vector<Network> preferred_networks;
     for (int n = 0; n < NET_MAX; n++) {
         enum Network net = (enum Network)n;

@@ -901,6 +901,8 @@ public:
     */
     int GetFullOutboundAndManualCount(Network net);
 
+    bool SupportsMultipleNetworks() const;
+
 private:
     struct ListenSocket {
     public:
