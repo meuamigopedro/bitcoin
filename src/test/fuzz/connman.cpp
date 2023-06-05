@@ -128,4 +128,6 @@ FUZZ_TARGET_INIT(connman, initialize_connman)
     (void)connman.GetTotalBytesSent();
     (void)connman.GetTryNewOutboundPeer();
     (void)connman.GetUseAddrmanOutgoing();
+    const Network network {fuzzed_data_provider.PickValueInArray({Network::NET_IPV4, Network::NET_IPV6, Network::NET_ONION, Network::NET_I2P, Network::NET_CJDNS, Network::NET_INTERNAL})};
+    (void)connman.GetFullOutboundAndManualCount(network);
 }
