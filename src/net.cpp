@@ -1608,6 +1608,33 @@ std::unordered_set<Network> CConnman::GetReachableEmptyNetworks() const
     return networks;
 }
 
+bool CConnman::SupportsMultipleNetworks() const
+{
+    return m_multiple_networks_enabled;
+}
+
+void CConnman::CalculateMultipleNetworksSupported()
+{
+    int count = 0;
+    for ( int n = 0; n < NET_MAX; n++) {
+        enum Network net = (enum Network)n;
+        switch (net) {
+            case NET_UNROUTABLE:
+            case NET_IPV6:
+            case NET_INTERNAL:
+            case NET_MAX:
+                continue;
+            case NET_IPV4:
+            case NET_ONION:
+            case NET_I2P:
+            case NET_CJDNS:
+                if (IsReachable(net)) { count++; }
+        }
+    }
+
+    if (count > 1) { m_multiple_networks_enabled = true; }
+}
+
 int CConnman::GetFullOutboundAndManualCount(Network net) const
 {
     LOCK(m_nodes_mutex);
@@ -1629,6 +1656,8 @@ int CConnman::GetFullOutboundAndManualCount(Network net) const
 
 bool CConnman::MaybePickPreferredNetwork(std::optional<Network>& network)
 {
+    if (!SupportsMultipleNetworks()) { return false; }
+
     std::vector<Network> preferred_networks;
     for (int n = 0; n < NET_MAX; n++) {
         enum Network net = (enum Network)n;
@@ -2467,6 +2496,8 @@ bool CConnman::Start(CScheduler& scheduler, const Options& connOptions)
 
     // Dump network addresses
     scheduler.scheduleEvery([this] { DumpAddresses(); }, DUMP_PEERS_INTERVAL);
+
+    CalculateMultipleNetworksSupported();
 
     return true;
 }

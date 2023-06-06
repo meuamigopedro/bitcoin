@@ -5162,7 +5162,7 @@ void PeerManagerImpl::EvictExtraOutboundPeers(std::chrono::seconds now)
             // Both outbound-full-relay and manual connections are counted for this,
             // but not block-relay-only connections because the goal
             // is to have at least one tx-relaying connection to each reachable network.
-            if (m_connman.GetFullOutboundAndManualCount(pnode->addr.GetNetwork()) <= 1) return;
+            if (m_connman.SupportsMultipleNetworks() && m_connman.GetFullOutboundAndManualCount(pnode->addr.GetNetwork()) <= 1) return;
             if (state->m_last_block_announcement < oldest_block_announcement || (state->m_last_block_announcement == oldest_block_announcement && pnode->GetId() > worst_peer)) {
                 worst_peer = pnode->GetId();
                 oldest_block_announcement = state->m_last_block_announcement;

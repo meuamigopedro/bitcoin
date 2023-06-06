@@ -901,6 +901,13 @@ public:
     */
     int GetFullOutboundAndManualCount(Network net) const;
 
+    /**
+     * Return whether we have multiple networks supported on the node.
+     *
+     * @note IPV4 & IPV6 are treated as one combined "clearnet".
+     */
+    bool SupportsMultipleNetworks() const;
+
 private:
     struct ListenSocket {
     public:
@@ -1014,6 +1021,14 @@ private:
     std::unordered_set<Network> GetReachableEmptyNetworks() const;
 
     /**
+     * Set member variable m_multiple_networks_enabled based on number of
+     * reachable networks supported by the node configuration.
+     *
+     * @note IPV4 & IPV6 are treated as one combined "clearnet".
+     */
+    void CalculateMultipleNetworksSupported();
+
+    /**
      * Return vector of current BLOCK_RELAY peers.
      */
     std::vector<CAddress> GetCurrentBlockRelayOnlyConns() const;
@@ -1068,6 +1083,7 @@ private:
     mutable RecursiveMutex m_nodes_mutex;
     std::atomic<NodeId> nLastNodeId{0};
     unsigned int nPrevNodeCount{0};
+    bool m_multiple_networks_enabled{false};
 
     /**
      * Cache responses to addr requests to minimize privacy leak.
