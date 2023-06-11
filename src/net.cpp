@@ -579,6 +579,8 @@ CNode* CConnman::ConnectNode(CAddress addrConnect, const char *pszDest, bool fCo
                              });
     pnode->AddRef();
 
+    if (pnode->IsManualOrFullOutboundConn()) { m_network_conn_counts[pnode->ConnectedThroughNetwork()] += 1; }
+
     // We're making a new connection, harvest entropy from the time (and our peer count)
     RandAddEvent((uint32_t)id);
 
@@ -1138,6 +1140,9 @@ void CConnman::DisconnectNodes()
 
                 // close socket and cleanup
                 pnode->CloseSocketDisconnect();
+
+                // update connection count by network
+                if (pnode->IsManualOrFullOutboundConn()) { m_network_conn_counts[pnode->ConnectedThroughNetwork()] -= 1; }
 
                 // hold in disconnected pool until all refs are released
                 pnode->Release();
@@ -2364,6 +2369,11 @@ bool CConnman::Start(CScheduler& scheduler, const Options& connOptions)
     if (semAddnode == nullptr) {
         // initialize semaphore
         semAddnode = std::make_unique<CSemaphore>(nMaxAddnode);
+    }
+
+    for (int n = 0; n < NET_MAX; n++) {
+        enum Network net = (enum Network)n;
+        m_network_conn_counts[net] = 0;
     }
 
     //

@@ -465,6 +465,21 @@ public:
         return m_conn_type == ConnectionType::MANUAL;
     }
 
+    bool IsManualOrFullOutboundConn() const {
+        switch (m_conn_type) {
+            case ConnectionType::INBOUND:
+            case ConnectionType::FEELER:
+            case ConnectionType::BLOCK_RELAY:
+            case ConnectionType::ADDR_FETCH:
+                return false;
+            case ConnectionType::OUTBOUND_FULL_RELAY:
+            case ConnectionType::MANUAL:
+                return true;
+        } // no default case, so the compiler can warn about missing cases
+
+        assert(false);
+    }
+
     bool IsBlockOnlyConn() const {
         return m_conn_type == ConnectionType::BLOCK_RELAY;
     }
@@ -1022,6 +1037,9 @@ private:
     uint64_t nMaxOutboundTotalBytesSentInCycle GUARDED_BY(m_total_bytes_sent_mutex) {0};
     std::chrono::seconds nMaxOutboundCycleStartTime GUARDED_BY(m_total_bytes_sent_mutex) {0};
     uint64_t nMaxOutboundLimit GUARDED_BY(m_total_bytes_sent_mutex);
+
+    // Stores number of full-tx connections (outbound and manual) per network
+    std::map<Network, std::atomic<unsigned int>> m_network_conn_counts;
 
     // P2P timeout in seconds
     std::chrono::seconds m_peer_connect_timeout;
