@@ -696,6 +696,7 @@ struct NodeManager
 {
     std::vector<CNode*> m_nodes GUARDED_BY(m_nodes_mutex);
     mutable RecursiveMutex m_nodes_mutex;
+    std::list<CNode*> m_nodes_disconnected;
 
     void AddPeer(CNode* peer) EXCLUSIVE_LOCKS_REQUIRED(!m_nodes_mutex);
 };
@@ -1050,7 +1051,6 @@ private:
     Mutex m_addr_fetches_mutex;
     std::vector<std::string> m_added_nodes GUARDED_BY(m_added_nodes_mutex);
     mutable Mutex m_added_nodes_mutex;
-    std::list<CNode*> m_nodes_disconnected;
     std::atomic<NodeId> nLastNodeId{0};
     unsigned int nPrevNodeCount{0};
 
