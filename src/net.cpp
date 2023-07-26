@@ -113,6 +113,12 @@ std::map<CNetAddr, LocalServiceInfo> mapLocalHost GUARDED_BY(g_maplocalhost_mute
 static bool vfLimited[NET_MAX] GUARDED_BY(g_maplocalhost_mutex) = {};
 std::string strSubVersion;
 
+void NodeManager::AddPeer(CNode* peer)
+{
+    LOCK(m_nodes_mutex);
+    m_nodes.push_back(peer);
+}
+
 void CConnman::AddAddrFetch(const std::string& strDest)
 {
     LOCK(m_addr_fetches_mutex);
@@ -1063,11 +1069,7 @@ void CConnman::CreateNodeFromAcceptedSocket(std::unique_ptr<Sock>&& sock,
     m_msgproc->InitializeNode(*pnode, nodeServices);
 
     LogPrint(BCLog::NET, "connection from %s accepted\n", addr.ToStringAddrPort());
-
-    {
-        LOCK(m_node_manager.m_nodes_mutex);
-        m_node_manager.m_nodes.push_back(pnode);
-    }
+    m_node_manager.AddPeer(pnode);
 
     // We received a new connection, harvest entropy from the time (and our peer count)
     RandAddEvent((uint32_t)id);
@@ -2037,10 +2039,7 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
         grantOutbound->MoveTo(pnode->grantOutbound);
 
     m_msgproc->InitializeNode(*pnode, nLocalServices);
-    {
-        LOCK(m_node_manager.m_nodes_mutex);
-        m_node_manager.m_nodes.push_back(pnode);
-    }
+    m_node_manager.AddPeer(pnode);
 }
 
 Mutex NetEventsInterface::g_msgproc_mutex;

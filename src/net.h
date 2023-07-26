@@ -696,6 +696,8 @@ struct NodeManager
 {
     std::vector<CNode*> m_nodes GUARDED_BY(m_nodes_mutex);
     mutable RecursiveMutex m_nodes_mutex;
+
+    void AddPeer(CNode* peer) EXCLUSIVE_LOCKS_REQUIRED(!m_nodes_mutex);
 };
 
 class CConnman
