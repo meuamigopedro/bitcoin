@@ -27,16 +27,16 @@ struct ConnmanTestMsg : public CConnman {
 
     void AddTestNode(CNode& node)
     {
-        LOCK(m_nodes_mutex);
-        m_nodes.push_back(&node);
+        LOCK(m_node_manager.m_nodes_mutex);
+        m_node_manager.m_nodes.push_back(&node);
     }
     void ClearTestNodes()
     {
-        LOCK(m_nodes_mutex);
-        for (CNode* node : m_nodes) {
+        LOCK(m_node_manager.m_nodes_mutex);
+        for (CNode* node : m_node_manager.m_nodes) {
             delete node;
         }
-        m_nodes.clear();
+        m_node_manager.m_nodes.clear();
     }
 
     void Handshake(CNode& node,
