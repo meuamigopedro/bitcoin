@@ -1194,8 +1194,6 @@ private:
      */
     ServiceFlags nLocalServices;
 
-    std::unique_ptr<CSemaphore> semAddnode;
-
     /**
      * Maximum number of automatic connections permitted, excluding manual
      * connections. May be changed by the user and potentially limited by the

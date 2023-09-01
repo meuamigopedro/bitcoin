@@ -2497,11 +2497,6 @@ bool CConnman::Start(CScheduler& scheduler, const Options& connOptions)
 
     fAddressesInitialized = true;
 
-    if (semAddnode == nullptr) {
-        // initialize semaphore
-        semAddnode = std::make_unique<CSemaphore>(m_max_addnode);
-    }
-
     //
     // Start threads
     //
@@ -2579,12 +2574,6 @@ void CConnman::Interrupt()
 
     interruptNet();
     InterruptSocks5(true);
-
-    if (semAddnode) {
-        for (int i=0; i<m_max_addnode; i++) {
-            semAddnode->post();
-        }
-    }
 }
 
 void CConnman::StopThreads()
@@ -2633,7 +2622,6 @@ void CConnman::StopNodes()
     }
     m_nodes_disconnected.clear();
     vhListenSocket.clear();
-    semAddnode.reset();
 }
 
 void CConnman::DeleteNode(CNode* pnode)
