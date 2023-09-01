@@ -1194,7 +1194,6 @@ private:
      */
     ServiceFlags nLocalServices;
 
-    std::unique_ptr<CSemaphore> semOutbound;
     std::unique_ptr<CSemaphore> semAddnode;
 
     /**
