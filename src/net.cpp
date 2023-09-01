@@ -1193,11 +1193,7 @@ bool CConnman::AddConnection(const std::string& address, ConnectionType conn_typ
     // Max connections of specified type already exist
     if (max_connections != std::nullopt && existing_connections >= max_connections) return false;
 
-    // Max total outbound connections already exist
-    CSemaphoreGrant grant(*semOutbound, true);
-    if (!grant) return false;
-
-    OpenNetworkConnection(CAddress(), false, &grant, address.c_str(), conn_type);
+    OpenNetworkConnection(CAddress(), false, address.c_str(), conn_type);
     return true;
 }
 
@@ -1224,9 +1220,6 @@ void CConnman::DisconnectNodes()
             {
                 // remove from m_nodes
                 m_nodes.erase(remove(m_nodes.begin(), m_nodes.end(), pnode), m_nodes.end());
-
-                // release outbound grant (if any)
-                pnode->grantOutbound.Release();
 
                 // close socket and cleanup
                 pnode->CloseSocketDisconnect();
@@ -1628,9 +1621,16 @@ void CConnman::ProcessAddrFetch()
         m_addr_fetches.pop_front();
     }
     CAddress addr;
-    CSemaphoreGrant grant(*semOutbound, true);
-    if (grant) {
-        OpenNetworkConnection(addr, false, &grant, strDest.c_str(), ConnectionType::ADDR_FETCH);
+
+    ConnectionType matching_conn_types[] {ConnectionType::OUTBOUND_FULL_RELAY, ConnectionType::FEELER, ConnectionType::BLOCK_RELAY, ConnectionType::ADDR_FETCH};
+    int existing_outbounds = WITH_LOCK(m_nodes_mutex,
+            return std::count_if(m_nodes.begin(), m_nodes.end(),
+                [matching_conn_types](CNode* node) { return std::find(std::begin(matching_conn_types), std::end(matching_conn_types), node->m_conn_type) != std::end(matching_conn_types);
+                });
+            );
+
+    if (existing_outbounds < m_max_automatic_outbound) {
+        OpenNetworkConnection(addr, false, strDest.c_str(), ConnectionType::ADDR_FETCH);
     }
 }
 
@@ -1732,7 +1732,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
             for (const std::string& strAddr : connect)
             {
                 CAddress addr(CService(), NODE_NONE);
-                OpenNetworkConnection(addr, false, nullptr, strAddr.c_str(), ConnectionType::MANUAL);
+                OpenNetworkConnection(addr, false, strAddr.c_str(), ConnectionType::MANUAL);
                 for (int i = 0; i < 10 && i < nLoop; i++)
                 {
                     if (!interruptNet.sleep_for(std::chrono::milliseconds(500)))
@@ -1766,7 +1766,6 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         if (!interruptNet.sleep_for(std::chrono::milliseconds(500)))
             return;
 
-        CSemaphoreGrant grant(*semOutbound);
         if (interruptNet)
             return;
 
@@ -1821,12 +1820,19 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         int nOutboundBlockRelay = 0;
         int outbound_privacy_network_peers = 0;
         std::set<std::vector<unsigned char>> outbound_ipv46_peer_netgroups;
+        int automatic_outbound_conns = 0;
 
         {
             LOCK(m_nodes_mutex);
             for (const CNode* pnode : m_nodes) {
-                if (pnode->IsFullOutboundConn()) nOutboundFullRelay++;
-                if (pnode->IsBlockOnlyConn()) nOutboundBlockRelay++;
+                if (pnode->IsFullOutboundConn()) {
+                    nOutboundFullRelay++;
+                    ++automatic_outbound_conns;
+                }
+                if (pnode->IsBlockOnlyConn()) {
+                    nOutboundBlockRelay++;
+                    ++automatic_outbound_conns;
+                }
 
                 // Make sure our persistent outbound slots to ipv4/ipv6 peers belong to different netgroups.
                 switch (pnode->m_conn_type) {
@@ -1836,8 +1842,10 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
                     case ConnectionType::INBOUND:
                     // Short-lived outbound connections should not affect how we select outbound
                     // peers from addrman.
+                        break;
                     case ConnectionType::ADDR_FETCH:
                     case ConnectionType::FEELER:
+                        ++automatic_outbound_conns;
                         break;
                     case ConnectionType::MANUAL:
                     case ConnectionType::OUTBOUND_FULL_RELAY:
@@ -1864,6 +1872,11 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
         bool anchor = false;
         bool fFeeler = false;
         std::optional<Network> preferred_net;
+
+        if (automatic_outbound_conns >= m_max_automatic_outbound) {
+            // skip to next iteration of while loop
+            continue;
+        }
 
         // Determine what type of connection to open. Opening
         // BLOCK_RELAY connections to addresses from anchors.dat gets the highest
@@ -2035,7 +2048,7 @@ void CConnman::ThreadOpenConnections(const std::vector<std::string> connect)
             // Don't record addrman failure attempts when node is offline. This can be identified since all local
             // network connections (if any) belong in the same netgroup, and the size of `outbound_ipv46_peer_netgroups` would only be 1.
             const bool count_failures{((int)outbound_ipv46_peer_netgroups.size() + outbound_privacy_network_peers) >= std::min(m_max_automatic_connections - 1, 2)};
-            OpenNetworkConnection(addrConnect, count_failures, &grant, /*strDest=*/nullptr, conn_type);
+            OpenNetworkConnection(addrConnect, count_failures, /*strDest=*/nullptr, conn_type);
         }
     }
 }
@@ -2112,19 +2125,19 @@ void CConnman::ThreadOpenAddedConnections()
     AssertLockNotHeld(m_unused_i2p_sessions_mutex);
     while (true)
     {
-        CSemaphoreGrant grant(*semAddnode);
         std::vector<AddedNodeInfo> vInfo = GetAddedNodeInfo();
         bool tried = false;
         for (const AddedNodeInfo& info : vInfo) {
             if (!info.fConnected) {
-                if (!grant.TryAcquire()) {
-                    // If we've used up our semaphore and need a new one, let's not wait here since while we are waiting
-                    // the addednodeinfo state might change.
-                    break;
-                }
+                // Count existing connections
+                // TODO: this isn't quite preserving current behavior because MANUAL would also include non addnode conns
+                int existing_connections = WITH_LOCK(m_nodes_mutex,
+                        return std::count_if(m_nodes.begin(), m_nodes.end(), [](CNode* node) { return node->m_conn_type == ConnectionType::MANUAL; }););
+                if (existing_connections >= m_max_addnode) { break; }
+
                 tried = true;
                 CAddress addr(CService(), NODE_NONE);
-                OpenNetworkConnection(addr, false, &grant, info.strAddedNode.c_str(), ConnectionType::MANUAL);
+                OpenNetworkConnection(addr, false, info.strAddedNode.c_str(), ConnectionType::MANUAL);
                 if (!interruptNet.sleep_for(std::chrono::milliseconds(500)))
                     return;
             }
@@ -2135,8 +2148,7 @@ void CConnman::ThreadOpenAddedConnections()
     }
 }
 
-// if successful, this moves the passed grant to the constructed node
-void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFailure, CSemaphoreGrant *grantOutbound, const char *pszDest, ConnectionType conn_type)
+void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFailure, const char *pszDest, ConnectionType conn_type)
 {
     AssertLockNotHeld(m_unused_i2p_sessions_mutex);
     assert(conn_type != ConnectionType::INBOUND);
@@ -2162,8 +2174,6 @@ void CConnman::OpenNetworkConnection(const CAddress& addrConnect, bool fCountFai
 
     if (!pnode)
         return;
-    if (grantOutbound)
-        grantOutbound->MoveTo(pnode->grantOutbound);
 
     m_msgproc->InitializeNode(*pnode, nLocalServices);
     {
