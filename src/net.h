@@ -927,6 +927,13 @@ public:
     // Count the number of block-relay-only peers we have over our limit.
     int GetExtraBlockRelayCount() const;
 
+    /**
+     * If we are at capacity for inbound tx-relay peers, attempt to evict one.
+     * @return bool Returns true if we aren't full, or if a peer was evicted.
+     *              returns false, if we are full but couldn't find a peer to evict
+     */
+    bool EvictTxPeerIfFull();
+
     bool AddNode(const std::string& node) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
     bool RemoveAddedNode(const std::string& node) EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
     std::vector<AddedNodeInfo> GetAddedNodeInfo() const EXCLUSIVE_LOCKS_REQUIRED(!m_added_nodes_mutex);
